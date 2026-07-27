@@ -1,0 +1,61 @@
+name: Deploy to GitHub Pages
+
+# Builds the static bundle and publishes it to Pages. The site is served from
+# a subpath (/BigBossMoney/), which works because vite.config.ts sets
+# `base: './'` — every asset, the manifest and the service worker are
+# referenced relatively.
+
+on:
+  push:
+    branches: [claude/big-boss-money-design-ig8fz5]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue instead of cancelling so a finished build
+# is not discarded halfway through publishing.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # A broken engine should never reach the public URL.
+      - name: Run engine invariant tests
+        run: npm test
+
+      # Also generates dist/sw.js via scripts/build-sw.mjs.
+      - name: Build
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
