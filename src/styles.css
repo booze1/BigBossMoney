@@ -502,6 +502,17 @@ select {
   transition: background 0.12s;
 }
 
+/* A row that is not itself tappable but carries its own controls — the staff
+   roster, where the row is a person and the button beside them is the action. */
+.listrow-static {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
+}
+.listrow-static:last-child { border-bottom: none; }
+
 .listrow:last-child { border-bottom: none; }
 .listrow-tap:active { background: var(--surface-2); }
 

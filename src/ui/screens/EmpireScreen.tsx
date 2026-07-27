@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useGame } from '../../store';
 import type { Business, CategoryId } from '../../engine/types';
 import { TRAIT_BY_ID } from '../../engine/content/traits';
+import { tenureLabel } from '../../engine/content/staff';
 import { CATEGORIES, CATEGORY_BY_ID, MANAGERS, MANAGER_BY_TIER, MANAGER_ORDER } from '../../engine/content/businesses';
 import { TUNING } from '../../engine/content/tuning';
 import {
@@ -15,6 +16,10 @@ import {
   isCategoryUnlocked,
   managerHireCost,
   maxStaff,
+  serviceYears,
+  severanceFor,
+  tenureWeight,
+  totalSeverance,
   nextSaturation,
   upgradeCost,
 } from '../../engine/selectors';
@@ -163,7 +168,7 @@ function BusinessRow({ business, onOpen }: { business: Business; onOpen: () => v
         </div>
         <div className="row" style={{ marginTop: 3 }}>
           <span className="faint" style={{ fontSize: 11.5 }}>
-            {business.staff}/{maxStaff(business)} staff
+            {business.roster.length}/{maxStaff(business)} staff
             {business.manager !== 'none' && ` · ${manager.name}`}
             {business.propertyId && ' · owns premises'}
           </span>
@@ -316,30 +321,66 @@ function StaffTab({ business }: { business: Business }) {
       <Card>
         <div className="card-head">
           <span className="card-title">Headcount</span>
-          <span className="num dim">{business.staff} / {cap}</span>
+          <span className="num dim">{business.roster.length} / {cap}</span>
         </div>
-        <Meter value={cap > 0 ? business.staff / cap : 0} />
+        <Meter value={cap > 0 ? business.roster.length / cap : 0} />
         <div className="hint" style={{ marginTop: 8 }}>
-          Each hire adds {pct(TUNING.staffRevenueBonus, 0)} revenue and a permanent wage. Upgrade the
-          business to raise the cap.
+          Each hire adds {pct(TUNING.staffRevenueBonus, 0)} revenue and a permanent wage, and grows
+          worth up to {pct(TUNING.tenureBonusMax, 0)} more the longer they stay. Upgrade the business
+          to raise the cap.
         </div>
-        <div className="btn-group" style={{ marginTop: 11 }}>
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={business.staff <= 0}
-            onClick={() => dispatch({ type: 'fireStaff', id: business.id })}
-          >
-            Let one go
-          </button>
-          <button
-            className={`btn btn-sm ${state.cash >= cost && business.staff < cap ? 'btn-primary' : ''}`}
-            disabled={state.cash < cost || business.staff >= cap}
-            onClick={() => dispatch({ type: 'hireStaff', id: business.id })}
-          >
-            Hire — {money(cost)}
-          </button>
-        </div>
+        <button
+          className={`btn btn-block btn-sm ${
+            state.cash >= cost && business.roster.length < cap ? 'btn-primary' : ''
+          }`}
+          style={{ marginTop: 11 }}
+          disabled={state.cash < cost || business.roster.length >= cap}
+          onClick={() => dispatch({ type: 'hireStaff', id: business.id })}
+        >
+          {business.roster.length >= cap ? 'Fully staffed' : `Take someone on — ${money(cost)}`}
+        </button>
       </Card>
+
+      {business.roster.length > 0 && (
+        <>
+          <SectionLabel>On the books</SectionLabel>
+          <Card flush>
+            {business.roster.map((member) => {
+              const years = serviceYears(member);
+              const owed = severanceFor(state, business, member);
+              return (
+                <div key={member.id} className="listrow-static">
+                  <div className="grow">
+                    <div className="row row-tight">
+                      <span style={{ fontWeight: 560 }}>{member.name}</span>
+                      {years >= 3 && (
+                        <span className="chip chip-pos" style={{ fontSize: 10 }}>
+                          +{pct(tenureWeight(member) - 1, 0)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="faint" style={{ fontSize: 11.5, marginTop: 2 }}>
+                      {member.role} · {tenureLabel(years)}
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ flex: 'none' }}
+                    onClick={() => dispatch({ type: 'fireStaff', id: business.id, memberId: member.id })}
+                    aria-label={`Let ${member.name} go, ${money(owed)} severance`}
+                  >
+                    Let go · {money(owed)}
+                  </button>
+                </div>
+              );
+            })}
+          </Card>
+          <div className="hint" style={{ marginTop: 8, marginBottom: 4 }}>
+            Severance grows with service. Closing this business pays all of it at once —
+            {' '}{money(totalSeverance(state, business))} as things stand.
+          </div>
+        </>
+      )}
 
       <SectionLabel>Management</SectionLabel>
       <div className="hint" style={{ marginBottom: 10 }}>

@@ -25,13 +25,28 @@ export type Rarity =
 
 export type ManagerTier = 'none' | 'junior' | 'senior' | 'exec' | 'legend';
 
+/** Somebody on the payroll. */
+export interface StaffMember {
+  id: string;
+  name: string;
+  /** What they do — flavour, but it is what makes the roster read as people. */
+  role: string;
+  /** Wall-clock ms. Tenure is derived from this against the game-year length. */
+  hiredAt: number;
+}
+
 /** A single owned business instance. */
 export interface Business {
   id: string;
   category: CategoryId;
   name: string;
   level: number;
-  staff: number;
+  /**
+   * The people who work here, longest-serving first. Replaced a plain count:
+   * tenure pays, severance costs, and closing a business has to be able to say
+   * who it puts out of work.
+   */
+  roster: StaffMember[];
   manager: ManagerTier;
   /** Property id backing this business, or null if renting. */
   propertyId: string | null;

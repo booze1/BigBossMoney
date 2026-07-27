@@ -17,14 +17,18 @@ import {
   hustlePayout,
   netWorth,
   projectedLegacyPoints,
+  serviceYears,
+  severanceFor,
+  totalSeverance,
   propertyValue,
   rollCost,
   upgradeCost,
 } from './selectors';
-import { addCash, addLog, setFlash } from './mutations';
+import { addCash, addLog, hire, setFlash } from './mutations';
 import { applyRoll, type RollResult } from './rolls';
 import { resolveEventChoice } from './events';
 import { createBusiness, createInitialState } from './state';
+import { tenureLabel } from './content/staff';
 import { offersFor } from './premises';
 import { money } from './format';
 import { uid } from './rng';
@@ -36,7 +40,7 @@ export type Action =
   | { type: 'upgradeBusiness'; id: string }
   | { type: 'renameBusiness'; id: string; name: string }
   | { type: 'hireStaff'; id: string }
-  | { type: 'fireStaff'; id: string }
+  | { type: 'fireStaff'; id: string; memberId?: string }
   | { type: 'hireManager'; id: string; tier: ManagerTier }
   | { type: 'assignProperty'; businessId: string; propertyId: string | null }
   | { type: 'sellBusiness'; id: string }
@@ -140,20 +144,47 @@ export function apply(s: GameState, action: Action): ActionResult {
     case 'hireStaff': {
       const b = s.businesses.find((x) => x.id === action.id);
       if (!b) return {};
-      if (b.staff >= maxStaff(b)) return { message: 'Upgrade the business for more headcount.', tone: 'bad' };
+      if (b.roster.length >= maxStaff(b)) {
+        return { message: 'Upgrade the business for more headcount.', tone: 'bad' };
+      }
       const cost = hireStaffCost(s, b);
       if (s.cash < cost) return { message: 'Not enough cash to cover the signing cost.', tone: 'bad' };
       s.cash -= cost;
-      b.staff += 1;
-      return { message: `Hired. ${b.name} now has ${b.staff} staff.`, tone: 'good' };
+      const member = hire(b);
+      return { message: `${member.name} starts ${member.role}.`, tone: 'good' };
     }
 
     case 'fireStaff': {
       const b = s.businesses.find((x) => x.id === action.id);
-      if (!b || b.staff <= 0) return {};
-      b.staff -= 1;
-      b.morale = Math.max(TUNING.moraleMin, b.morale - 0.04);
-      return { message: 'Let one go. The room noticed.', tone: 'neutral' };
+      if (!b || b.roster.length === 0) return {};
+      // Without a named target this is the "-" button, which lets the newest
+      // hire go: the cheapest in severance and the least painful to lose.
+      const index = action.memberId
+        ? b.roster.findIndex((m) => m.id === action.memberId)
+        : b.roster.length - 1;
+      if (index < 0) return {};
+      const member = b.roster[index];
+
+      // Severance is capped at whatever cash is on hand rather than blocking
+      // the action. A player who cannot afford to make cuts is trapped, and
+      // being trapped is not the same as being under pressure.
+      const owed = Math.min(Math.max(0, s.cash), severanceFor(s, b, member));
+      s.cash -= owed;
+      b.roster.splice(index, 1);
+
+      // Letting go of someone with years in hits the room harder.
+      const years = serviceYears(member);
+      b.morale = Math.max(TUNING.moraleMin, b.morale - 0.04 - Math.min(0.06, years * 0.008));
+
+      addLog(
+        s,
+        `${member.name} left ${b.name} after ${tenureLabel(years)}. Severance ${money(owed)}.`,
+        'bad',
+      );
+      return {
+        message: `${member.name} is gone. ${tenureLabel(years)} of service, ${money(owed)} owed.`,
+        tone: 'neutral',
+      };
     }
 
     case 'hireManager': {
@@ -191,12 +222,24 @@ export function apply(s: GameState, action: Action): ActionResult {
       const b = s.businesses.find((x) => x.id === action.id);
       if (!b) return {};
       if (s.businesses.length <= 1) return { message: 'You need at least one business.', tone: 'bad' };
-      const proceeds = businessValue(b) * 0.75;
+      // Everyone on the books is paid off out of the proceeds. Closing a place
+      // with people who have been there for years costs real money, which is
+      // the point: a business is not just a line item you can delete.
+      const owed = totalSeverance(s, b);
+      const gross = businessValue(b) * 0.75;
+      const proceeds = Math.max(0, gross - owed);
       addCash(s, proceeds);
+
+      const headcount = b.roster.length;
       s.businesses = s.businesses.filter((x) => x.id !== b.id);
       s.pendingEvents = s.pendingEvents.filter((e) => e.businessId !== b.id);
-      addLog(s, `Sold ${b.name} for ${money(proceeds)}.`, 'neutral');
-      return { message: `Sold ${b.name} for ${money(proceeds)}.`, tone: 'neutral' };
+
+      const staffNote =
+        headcount > 0
+          ? ` ${headcount} ${headcount === 1 ? 'person' : 'people'} paid off, ${money(owed)}.`
+          : '';
+      addLog(s, `Sold ${b.name} for ${money(gross)}.${staffNote}`, 'neutral');
+      return { message: `Sold ${b.name} for ${money(proceeds)} net.${staffNote}`, tone: 'neutral' };
     }
 
     // -------------------------------------------------------------- events

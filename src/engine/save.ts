@@ -1,6 +1,7 @@
 import type { GameState } from './types';
 import { SAVE_VERSION, createInitialState } from './state';
 import { simulateOffline } from './sim';
+import { hire } from './mutations';
 import { offlineCapSeconds } from './selectors';
 import { TUNING } from './content/tuning';
 
@@ -82,6 +83,19 @@ export function migrate(parsed: Partial<GameState> | null): GameState {
     if (!b.tags) b.tags = {};
     if (!b.recentCards) b.recentCards = [];
     if (!Array.isArray(b.traits)) b.traits = [];
+
+    // Headcount used to be an integer. Give those saves a roster of real
+    // people, backdated to when the business opened — they have been there the
+    // whole time, so it would be wrong to have them start from nothing.
+    if (!Array.isArray(b.roster)) {
+      const legacyCount = (b as unknown as { staff?: number }).staff ?? 0;
+      b.roster = [];
+      for (let i = 0; i < legacyCount; i++) {
+        const member = hire(b);
+        member.hiredAt = b.foundedAt ?? Date.now();
+      }
+      delete (b as unknown as { staff?: number }).staff;
+    }
   }
 
   // Boost durations serialise Infinity as null; restore permanent boosts.

@@ -38,7 +38,7 @@ export function createBusiness(
     name,
     traits: from?.traits ?? [],
     level: 1,
-    staff: 0,
+    roster: [],
     manager: 'none',
     propertyId: null,
     morale: 1,

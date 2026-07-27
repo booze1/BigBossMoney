@@ -11,6 +11,7 @@ import { CURABLE_TRAITS, TRAIT_BY_ID, traitsFor } from './content/traits';
 import { generateOffers } from './premises';
 import { migrate } from './save';
 import { createBusiness } from './state';
+import { hire } from './mutations';
 import { LUXURY_ITEMS } from './content/luxury';
 import { DEVELOPMENT_OPTIONS } from './content/realestate';
 import { RARITY_ORDER, TUNING } from './content/tuning';
@@ -21,6 +22,12 @@ import {
   isCategoryUnlocked,
   netWorth,
   offlineCapSeconds,
+  maxStaff,
+  serviceYears,
+  severanceFor,
+  tenureWeight,
+  totalSeverance,
+  businessValue,
   rarityOdds,
   reinvestCostScale,
   saturationMultiplier,
@@ -215,7 +222,7 @@ describe('economy invariants', () => {
     const s = createInitialState();
     s.cash = 10;
     // A business deep in the red must not push cash below zero.
-    s.businesses[0].staff = 4;
+    for (let i = 0; i < 4; i++) hire(s.businesses[0]);
     s.businesses[0].morale = 0.6;
     playFor(s, 300);
     expect(s.cash).toBeGreaterThanOrEqual(0);
@@ -675,7 +682,7 @@ describe('premises and traits', () => {
         b.level = 5;
         s.businesses = [b];
         const before = businessFinancials(s, b).net;
-        b.staff = 1;
+        hire(b);
         expect(
           businessFinancials(s, b).net,
           `hiring at ${def.id} with "${trait.id}" loses money`,
@@ -720,5 +727,136 @@ describe('premises presentation', () => {
       const offers = generateOffers('retail', []);
       expect(new Set(offers.map((o) => o.pitch)).size).toBe(offers.length);
     }
+  });
+});
+
+describe('staff as people', () => {
+  it('hires a named person into a role, not a counter', () => {
+    const s = createInitialState();
+    s.cash = 1_000_000;
+    const b = s.businesses[0];
+    apply(s, { type: 'hireStaff', id: b.id });
+
+    expect(b.roster).toHaveLength(1);
+    expect(b.roster[0].name).toMatch(/\S+ \S+/);
+    expect(b.roster[0].role.length).toBeGreaterThan(0);
+    expect(b.roster[0].hiredAt).toBeGreaterThan(0);
+  });
+
+  it('never puts two people with the same name on one team', () => {
+    const s = createInitialState();
+    s.cash = 1e12;
+    const b = s.businesses[0];
+    b.level = 20;
+    for (let i = 0; i < maxStaff(b); i++) apply(s, { type: 'hireStaff', id: b.id });
+    expect(b.roster.length).toBeGreaterThan(10);
+    expect(new Set(b.roster.map((m) => m.name)).size).toBe(b.roster.length);
+  });
+
+  it('pays a lifer more than a new hire, but never without bound', () => {
+    const s = createInitialState();
+    const b = s.businesses[0];
+    hire(b);
+    const fresh = businessFinancials(s, b).net;
+
+    // Twenty game years of service.
+    b.roster[0].hiredAt = Date.now() - TUNING.secondsPerGameYear * 20 * 1000;
+    const lifer = businessFinancials(s, b).net;
+    expect(lifer).toBeGreaterThan(fresh);
+    expect(tenureWeight(b.roster[0])).toBeCloseTo(1 + TUNING.tenureBonusMax, 6);
+
+    // A century of service must be worth no more than the cap.
+    b.roster[0].hiredAt = Date.now() - TUNING.secondsPerGameYear * 100 * 1000;
+    expect(businessFinancials(s, b).net).toBeCloseTo(lifer, 6);
+  });
+
+  it('still keeps hiring worthwhile with the tenure bonus in play', () => {
+    // The wage invariant has to hold at both ends of the tenure range.
+    for (const def of CATEGORIES) {
+      const s = createInitialState();
+      const b = createBusiness(def.id, [], { name: 'Test', traits: [] });
+      b.level = 5;
+      s.businesses = [b];
+      const empty = businessFinancials(s, b).net;
+      hire(b);
+      expect(businessFinancials(s, b).net, `${def.id}: a new hire loses money`).toBeGreaterThan(empty);
+    }
+  });
+
+  it('charges severance that grows with service and dents morale', () => {
+    const s = createInitialState();
+    s.cash = 1_000_000;
+    const b = s.businesses[0];
+    hire(b);
+    hire(b);
+    const [veteran, rookie] = b.roster;
+    veteran.hiredAt = Date.now() - TUNING.secondsPerGameYear * 10 * 1000;
+
+    expect(severanceFor(s, b, veteran)).toBeGreaterThan(severanceFor(s, b, rookie));
+
+    const cashBefore = s.cash;
+    const moraleBefore = b.morale;
+    const owed = severanceFor(s, b, veteran);
+    apply(s, { type: 'fireStaff', id: b.id, memberId: veteran.id });
+
+    expect(b.roster.map((m) => m.id)).toEqual([rookie.id]);
+    expect(cashBefore - s.cash).toBeCloseTo(owed, 4);
+    expect(b.morale).toBeLessThan(moraleBefore);
+  });
+
+  it('lets go of the newest hire when no one is named', () => {
+    const s = createInitialState();
+    s.cash = 1_000_000;
+    const b = s.businesses[0];
+    hire(b);
+    hire(b);
+    const veteran = b.roster[0];
+    apply(s, { type: 'fireStaff', id: b.id });
+    expect(b.roster.map((m) => m.id)).toEqual([veteran.id]);
+  });
+
+  it('never lets severance take the player below zero', () => {
+    const s = createInitialState();
+    const b = s.businesses[0];
+    b.level = 12;
+    hire(b);
+    b.roster[0].hiredAt = Date.now() - TUNING.secondsPerGameYear * 50 * 1000;
+    s.cash = 1; // far less than is owed
+    apply(s, { type: 'fireStaff', id: b.id });
+    expect(s.cash).toBeGreaterThanOrEqual(0);
+    expect(b.roster).toHaveLength(0);
+  });
+
+  it('pays everyone off when a business is sold, out of the proceeds', () => {
+    const s = createInitialState();
+    s.cash = 1e9;
+    apply(s, { type: 'buyBusiness', category: 'retail' });
+    const b = s.businesses[1];
+    b.level = 8;
+    for (let i = 0; i < 4; i++) hire(b);
+    for (const m of b.roster) m.hiredAt = Date.now() - TUNING.secondsPerGameYear * 6 * 1000;
+
+    const owed = totalSeverance(s, b);
+    expect(owed).toBeGreaterThan(0);
+    const expected = Math.max(0, businessValue(b) * 0.75 - owed);
+
+    const before = s.cash;
+    apply(s, { type: 'sellBusiness', id: b.id });
+    expect(s.cash - before).toBeCloseTo(expected, 4);
+  });
+
+  it('turns a legacy headcount into people who have been there all along', () => {
+    const s = createInitialState();
+    const legacy = JSON.parse(JSON.stringify(s));
+    legacy.businesses[0].foundedAt = Date.now() - TUNING.secondsPerGameYear * 5 * 1000;
+    delete legacy.businesses[0].roster;
+    legacy.businesses[0].staff = 3;
+
+    const loaded = migrate(legacy);
+    const b = loaded.businesses[0];
+    expect(b.roster).toHaveLength(3);
+    expect(new Set(b.roster.map((m) => m.name)).size).toBe(3);
+    for (const m of b.roster) expect(serviceYears(m)).toBeGreaterThan(4);
+    expect((b as unknown as { staff?: number }).staff).toBeUndefined();
   });
 });

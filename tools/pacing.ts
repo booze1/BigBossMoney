@@ -82,7 +82,7 @@ function options(s: GameState): Buy[] {
       out.push({ payback: cost / gain, cost, kind: 'upgrade', run: () => apply(s, { type: 'upgradeBusiness', id: b.id }) });
     }
 
-    if (b.staff < maxStaff(b)) {
+    if (b.roster.length < maxStaff(b)) {
       const staffCost = hireStaffCost(s, b);
       const staffGain = before * TUNING.staffRevenueBonus;
       if (staffGain > 0) {

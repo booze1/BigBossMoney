@@ -1,8 +1,9 @@
-import type { Business, CategoryId, City, GameState, Property, Rarity } from './types';
+import type { Business, CategoryId, City, GameState, Property, Rarity, StaffMember } from './types';
 import { TUNING, TIERS, RARITY_META, RARITY_ORDER } from './content/tuning';
 import { CATEGORIES, CATEGORY_BY_ID, MANAGER_BY_TIER, CategoryDef } from './content/businesses';
 import { DEVELOPMENT_BY_TYPE } from './content/realestate';
 import { LUXURY_BY_ID } from './content/luxury';
+import { tenureYears } from './content/staff';
 import {
   traitRevenueMultiplier,
   traitStaffCapDelta,
@@ -125,7 +126,8 @@ export function businessFinancials(s: GameState, b: Business): BusinessFinancial
   const traitRevenue = traitRevenueMultiplier(b.traits);
   const levelRevenue =
     def.baseRevenue * Math.pow(TUNING.revenuePerLevel, b.level - 1) * saturation * traitRevenue;
-  const staffMultiplier = 1 + b.staff * TUNING.staffRevenueBonus;
+  // Loyalty pays: a lifer counts for more than a new hire, bounded.
+  const staffMultiplier = 1 + effectiveStaff(b) * TUNING.staffRevenueBonus;
   const boostMultiplier = categoryBoostMultiplier(s, b) * empireIncomeMultiplier(s);
 
   const gross =
@@ -156,7 +158,9 @@ export function businessFinancials(s: GameState, b: Business): BusinessFinancial
   // fail on others.
   const levelFactor = Math.pow(TUNING.revenuePerLevel, b.level - 1);
   const scaleRef = def.baseRevenue * saturation * levelFactor * traitRevenue;
-  const wages = scaleRef * TUNING.staffWageRatio * b.staff;
+  // Wages are per head, not per unit of loyalty — otherwise tenure would pay
+  // for itself and the bonus would be inert.
+  const wages = scaleRef * TUNING.staffWageRatio * b.roster.length;
   const managerSalary = scaleRef * manager.salaryRatio;
 
   const upkeep = fixed + rent + wages + managerSalary;
@@ -357,10 +361,58 @@ export function maxStaff(b: Business): number {
   return Math.max(1, b.level * TUNING.staffPerLevel + traitStaffCapDelta(b.traits));
 }
 
+export const headcount = (b: Business): number => b.roster.length;
+
+/** Years of service, against the game's compressed calendar. */
+export function serviceYears(member: StaffMember, now = Date.now()): number {
+  return tenureYears(member.hiredAt, now, TUNING.secondsPerGameYear);
+}
+
+/**
+ * What one person contributes, relative to a new hire. Bounded by
+ * TUNING.tenureBonusMax so the wage invariant survives an arbitrarily long run.
+ */
+export function tenureWeight(member: StaffMember, now = Date.now()): number {
+  return 1 + Math.min(TUNING.tenureBonusMax, serviceYears(member, now) * TUNING.tenureBonusPerYear);
+}
+
+/** Effective headcount once loyalty is counted. */
+export function effectiveStaff(b: Business, now = Date.now()): number {
+  return b.roster.reduce((sum, m) => sum + tenureWeight(m, now), 0);
+}
+
+/** What one person costs to let go. Grows with service, and is capped. */
+export function severanceFor(s: GameState, b: Business, member: StaffMember, now = Date.now()): number {
+  const perHead = wagePerHead(s, b);
+  const seconds = Math.min(
+    TUNING.severanceMaxSeconds,
+    TUNING.severanceBaseSeconds + serviceYears(member, now) * TUNING.severancePerYearSeconds,
+  );
+  return perHead * seconds;
+}
+
+/** Everything owed if this business closed today. */
+export function totalSeverance(s: GameState, b: Business, now = Date.now()): number {
+  return b.roster.reduce((sum, m) => sum + severanceFor(s, b, m, now), 0);
+}
+
+/** One person's wage per second — the unit severance is denominated in. */
+export function wagePerHead(s: GameState, b: Business): number {
+  const def = CATEGORY_BY_ID[b.category];
+  const levelFactor = Math.pow(TUNING.revenuePerLevel, b.level - 1);
+  return (
+    def.baseRevenue *
+    saturationMultiplier(s, b) *
+    levelFactor *
+    traitRevenueMultiplier(b.traits) *
+    TUNING.staffWageRatio
+  );
+}
+
 export function hireStaffCost(s: GameState, b: Business): number {
   const def = CATEGORY_BY_ID[b.category];
   const levelFactor = Math.pow(TUNING.revenuePerLevel, b.level - 1);
-  return def.baseRevenue * levelFactor * 8 * Math.pow(1.18, b.staff) * costMultiplier(s);
+  return def.baseRevenue * levelFactor * 8 * Math.pow(1.18, b.roster.length) * costMultiplier(s);
 }
 
 export function managerHireCost(s: GameState, b: Business, tier: keyof typeof MANAGER_BY_TIER): number {

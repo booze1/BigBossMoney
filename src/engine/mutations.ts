@@ -1,6 +1,7 @@
-import type { Boost, CategoryId, GameState, LogEntry, NewsItem, Rarity } from './types';
+import type { Boost, Business, CategoryId, GameState, LogEntry, NewsItem, Rarity, StaffMember } from './types';
 import { TUNING } from './content/tuning';
 import { uid } from './rng';
+import { roleFor, staffName } from './content/staff';
 
 /**
  * Small in-place mutators shared by the simulation and the action reducer.
@@ -101,4 +102,19 @@ export function coverShortfall(s: GameState): void {
       'bad',
     );
   }
+}
+
+/**
+ * Puts someone on the books. Names are unique within a business, and the hire
+ * time is what every tenure figure is derived from later.
+ */
+export function hire(b: Business): StaffMember {
+  const member: StaffMember = {
+    id: uid('staff'),
+    name: staffName(b.roster.map((m) => m.name)),
+    role: roleFor(b.category),
+    hiredAt: Date.now(),
+  };
+  b.roster.push(member);
+  return member;
 }

@@ -3,7 +3,7 @@ import { TUNING } from './content/tuning';
 import { CATEGORY_BY_ID } from './content/businesses';
 import { EVENT_BY_ID } from './content/events';
 import { empireIncomeMultiplier, maxStaff, saturationMultiplier, totalLuck } from './selectors';
-import { addBoost, addCash, addLog, clampMorale, grantRolls } from './mutations';
+import { addBoost, addCash, addLog, clampMorale, grantRolls, hire } from './mutations';
 import { TRAIT_BY_ID } from './content/traits';
 import { chance } from './rng';
 import { money } from './format';
@@ -147,10 +147,24 @@ function applyOutcome(
   }
 
   if (outcome.staff && business) {
-    const before = business.staff;
-    business.staff = Math.max(0, Math.min(maxStaff(business), business.staff + outcome.staff));
-    const delta = business.staff - before;
-    if (delta !== 0) lines.push(`${delta > 0 ? '+' : ''}${delta} staff`);
+    const before = business.roster.length;
+    if (outcome.staff > 0) {
+      const room = maxStaff(business) - before;
+      for (let i = 0; i < Math.min(outcome.staff, room); i++) hire(business);
+    } else {
+      // Cards let people go from the back of the queue: the newest hires,
+      // never the lifers. Losing someone with fifteen years in to a random
+      // card would land as arbitrary rather than dramatic.
+      business.roster.splice(outcome.staff);
+    }
+    const delta = business.roster.length - before;
+    if (delta !== 0) {
+      const who =
+        delta < 0 && before > 0
+          ? `${-delta} let go`
+          : `${delta > 0 ? '+' : ''}${delta} staff`;
+      lines.push(who);
+    }
   }
 
   if (outcome.boost) {

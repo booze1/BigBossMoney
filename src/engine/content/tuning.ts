@@ -96,6 +96,26 @@ export const TUNING = {
    * ceiling is ~0.020.
    */
   staffWageRatio: 0.008,
+
+  /**
+   * Loyalty. Each year of service adds `tenureBonusPerYear` to what one person
+   * contributes, capped at `tenureBonusMax` — so a lifer is worth a quarter
+   * more than a new hire and no more than that. The cap is what keeps the wage
+   * invariant above intact: without it a long run would drift staff output
+   * arbitrarily far from the wages paying for it.
+   */
+  tenureBonusPerYear: 0.03,
+  tenureBonusMax: 0.25,
+
+  /**
+   * Severance, in seconds of that person's wage, growing with service. This is
+   * the cost of churn: firing a lifer to trim a wage bill is expensive, and
+   * closing a business pays out everyone at once. Capped so a very old empire
+   * cannot make its own staff unfireable.
+   */
+  severanceBaseSeconds: 240,
+  severancePerYearSeconds: 90,
+  severanceMaxSeconds: 1_500,
   /** Rent paid when a business has no owned commercial property behind it. */
   rentRatio: 0.12,
   /** Margin bonus for operating out of property you own. */

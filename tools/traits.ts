@@ -46,6 +46,7 @@ import { createRuntime, step } from '../src/engine/sim';
 import { apply } from '../src/engine/actions';
 import { TRAITS } from '../src/engine/content/traits';
 import { businessFinancials } from '../src/engine/selectors';
+import { hire } from '../src/engine/mutations';
 import type { CategoryId, GameState } from '../src/engine/types';
 
 const TRIALS = Number(process.env.TRIALS ?? 400);
@@ -60,7 +61,7 @@ function rig(category: CategoryId, traits: string[], staff = STAFF): GameState {
   const b = s.businesses[0];
   b.category = category;
   b.level = LEVEL;
-  b.staff = staff;
+  for (let i = 0; i < staff; i++) hire(b);
   b.traits = [...traits];
   s.businesses = [b];
   // Markets, property and luck all move money for reasons unrelated to the
