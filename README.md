@@ -32,6 +32,21 @@ categories unlock as your net worth grows: retail, restaurants, nightclubs, tech
 startups, banks and development companies. Each has its own margins, volatility
 and event deck.
 
+Opening one is a decision rather than a button. Three premises come to the table
+per category, each carrying its traits openly and priced by them: one that is
+simply good, one that is cheap because something is wrong with it, and one that
+cuts both ways. Traits are permanent and do real work — they move revenue,
+upkeep and the staff cap, change how often the place surfaces a decision, and
+gate which cards it can draw. A flaw can be cured, at a price, by the card it
+unlocks; the shortlist does not reshuffle until you buy, so the choice cannot be
+dodged.
+
+**Staff are people.** Everyone has a name, a job and a start date. Tenure pays —
+a lifer is worth up to a quarter more than a new hire — and severance costs,
+growing with service and charged for the whole roster at once when you close a
+business. Trimming a wage bill means choosing who, and the button tells you what
+it will cost before you press it.
+
 **Event cards** are the part you actually play. Businesses periodically surface a
 decision — a supplier hikes prices, a critic is in the dining room, production is
 down, deposits are fleeing the bank. Each card offers a safe line and a greedy
@@ -39,7 +54,7 @@ one, and the greedy one has stated odds that your Luck stat quietly improves.
 Hire a manager and they will handle cards for you at a reduced payoff, which is
 the real trade: attention for throughput.
 
-The deck is 132 cards across seven files in `engine/content/events/`. Two things
+The deck is 142 cards across eight files in `engine/content/events/`. Two things
 give it depth beyond volume:
 
 - **Memory tags.** Outcomes write situational tags onto the business —
@@ -78,6 +93,12 @@ collection is a portfolio too.
 and if it gets away from you, file for bankruptcy and restart with a fraction of
 the Legacy Points an IPO would have paid.
 
+**Coming back** shows you what the empire did without you: earnings split by
+source, net worth across the absence as a curve, and the handful of things worth
+remarking on — a development finishing, a ticker moving hard, somebody passing
+ten years on the tills. Capped at six lines, because a wall of text reads the
+same as no report at all.
+
 **Going public** ends a run at $250M net worth. You lose everything and bank
 Legacy Points, which buy permanent upgrades — starting capital, starting Luck,
 empire-wide income, offline capacity, cheaper purchases — that carry into every
@@ -95,7 +116,9 @@ src/
     events.ts        card resolution, where luck meets the odds
     rolls.ts         rarity rolling and reward application
     save.ts          localStorage persistence and offline catch-up
-    content/         tuning, businesses, event decks, markets, cities, luxury
+    premises.ts      the three-site shortlist and what traits do to the money
+    content/         tuning, businesses, traits, staff, event decks, markets,
+                     cities, luxury
   ui/                screens and components
   store.tsx          mutable state + rAF loop + React bridge
 ```
@@ -122,8 +145,10 @@ matter most:
 Pacing is measured by `tools/pacing.ts`, which drives the engine with a bot
 that reinvests into whichever purchase has the shortest payback — businesses,
 upgrades, staff, property, development, and buying premises to house a
-business. It resolves every card instantly and never idles, so it is a strict
-lower bound on a human run. Median to the $250M IPO is ~35 minutes.
+business, and it prices every premises on the shortlist individually rather
+than assuming the category's list price. It resolves every card instantly and
+never idles, so it is a strict lower bound on a human run. Median to the $250M
+IPO is ~34 minutes.
 
 **The master pacing dial is the reinvestment cost ramp.** Every purchase price
 is multiplied by `1 + (netWorth / costRampReference) ^ costRampExponent`,
@@ -146,6 +171,20 @@ late-game cash is effectively unlimited the answer to "what next" was always
 "another one of those" — the bot used to finish runs holding 90 to 145
 businesses and never touched property.
 
+**Premises trait prices are measured, not chosen.** `tools/traits.ts` derives
+what each trait should cost from what it does to earnings; change an effect and
+re-run it rather than editing a price by hand. Building that tool turned up two
+levers that did the opposite of what they claimed:
+
+- `eventRate` below 1 means more cards, and cards pay, so giving it to flaws
+  made a neglected premises the most profitable thing on the shortlist — one
+  measured at 1.44x a clean site. It now tracks how alive a location is instead.
+- `stakes` scaled the cash swing of card outcomes, meant to make a risky site
+  volatile. Instrumenting wins and losses separately showed why it could not
+  work: over ten minutes cards take 6,858 and give back 2,084, so card *cash* is
+  net negative and what cards actually pay is the boosts they grant. Scaling
+  both directions made a risky site worth more than a safe one. It was removed.
+
 Two related constraints are load-bearing and worth knowing before retuning:
 
 - `staffWageRatio` must stay below `staffRevenueBonus × (1 - upkeepRatio -
@@ -154,6 +193,9 @@ Two related constraints are load-bearing and worth knowing before retuning:
 - `upgradeCostGrowth` must exceed `revenuePerLevel` by enough that upgrade
   payback degrades with level. They were 1.35 against 1.28, so levelling was
   near-free exponential growth and dominated everything else.
+- `tenureBonusMax` must stay bounded at all. Without a cap, staff output drifts
+  arbitrarily far from the wages paying for it over a long run, and the first
+  constraint above stops holding.
 
 Growth is still exponential at the top end — that is characteristic of the genre
 and the prestige wall is the intended answer. Raising the IPO threshold 200×
@@ -167,6 +209,13 @@ something, no dead table entries), economy invariants (cash never negative, no
 buy-then-sell arbitrage, fresh businesses profitable while renting), the luck
 distribution, offline simulation bounds, save round-tripping, prestige, and the
 real-estate systems.
+
+The premises and staff systems bring their own, several of which exist to stop
+a feature quietly becoming a trap: every curable flaw must have a card that can
+actually clear it, a cure card must only be drawable where the flaw exists, no
+single trait may leave a fresh business unable to pay its rent or make hiring a
+loss, severance may never take the player below zero, and the offline report's
+earnings must equal income minus repayments exactly.
 
 The suite is mutation-tested: re-introducing the listing-depletion bug or the
 uncapped hustle each make it fail.

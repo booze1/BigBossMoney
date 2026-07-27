@@ -9,8 +9,8 @@ import {
   tierProgress,
   totalIncome,
 } from './engine/selectors';
-import { duration, money, rate } from './engine/format';
-import { AnimatedMoney, Modal, PanelSheet } from './ui/components/common';
+import { duration, money, pct, rate } from './engine/format';
+import { AnimatedMoney, Card, Modal, PanelSheet, SectionLabel, Sparkline } from './ui/components/common';
 import { EventCardOverlay } from './ui/components/EventCard';
 import { EmpireScreen } from './ui/screens/EmpireScreen';
 import { MarketsScreen } from './ui/screens/MarketsScreen';
@@ -192,27 +192,121 @@ function RarityFlash() {
   );
 }
 
+/**
+ * What the empire did while you were gone.
+ *
+ * This used to be one number. A number tells you nothing about whether the
+ * development finished, whether the market moved, or whether anyone reached
+ * ten years on the tills — so the offline simulation is instrumented and this
+ * reads it back: where the money came from, what net worth did across the
+ * absence, and the handful of things worth remarking on.
+ */
 function OfflineReport() {
   const { state, dispatch } = useGame();
   const report = state.offlineReport;
   if (!report) return null;
 
+  const close = () => dispatch({ type: 'clearOfflineReport' });
+  const growth =
+    report.netWorthBefore > 0
+      ? (report.netWorthAfter - report.netWorthBefore) / report.netWorthBefore
+      : 0;
+
+  const sources: { label: string; amount: number }[] = [
+    { label: 'Businesses', amount: report.fromBusinesses },
+    { label: 'Property', amount: report.fromProperty },
+    { label: 'Debt repaid', amount: -report.debtRepaid },
+  ].filter((row) => Math.abs(row.amount) > 0.5);
+
   return (
-    <Modal open onClose={() => dispatch({ type: 'clearOfflineReport' })} title="While you were out">
-      <div className="modal-body">
-        Your empire ran for {duration(report.seconds)} without you, at{' '}
-        {Math.round(TUNING.offlineRate * 100)}% of normal output.
-        {report.capped && ' You hit your offline cap — raise it with Delegation upgrades and luck rolls.'}
-      </div>
-      <div style={{ textAlign: 'center', margin: '10px 0 18px' }}>
-        <div className="tile-label">Collected</div>
-        <div className="num pos" style={{ fontSize: 32, fontWeight: 700 }}>
-          {money(report.earned)}
+    <Modal open onClose={close} title="While you were out">
+      <div className="screen">
+        <div className="hint">
+          {duration(report.seconds)} at {Math.round(TUNING.offlineRate * 100)}% output.
+          {report.capped && ' You hit your offline cap — Delegation upgrades and luck rolls raise it.'}
         </div>
+
+        <div style={{ textAlign: 'center', margin: '14px 0 6px' }}>
+          <div className="tile-label">Collected</div>
+          <div className={`num ${report.earned >= 0 ? 'pos' : 'neg'}`} style={{ fontSize: 34, fontWeight: 700 }}>
+            {money(report.earned)}
+          </div>
+        </div>
+
+        {report.curve.length > 2 && (
+          <Card>
+            <div className="row" style={{ marginBottom: 8 }}>
+              <div>
+                <div className="tile-label">Net worth</div>
+                <div className="num" style={{ fontSize: 17, fontWeight: 640 }}>
+                  {money(report.netWorthAfter)}
+                </div>
+              </div>
+              <span className="grow" />
+              <div style={{ textAlign: 'right' }}>
+                <div className="tile-label">Change</div>
+                <div className={`num ${growth >= 0 ? 'pos' : 'neg'}`} style={{ fontSize: 17, fontWeight: 640 }}>
+                  {growth >= 0 ? '+' : ''}{pct(growth, 1)}
+                </div>
+              </div>
+            </div>
+            <Sparkline data={report.curve} width={300} height={54} />
+            <div className="row" style={{ marginTop: 4 }}>
+              <span className="faint" style={{ fontSize: 11 }}>{money(report.netWorthBefore)}</span>
+              <span className="grow" />
+              <span className="faint" style={{ fontSize: 11 }}>now</span>
+            </div>
+          </Card>
+        )}
+
+        {sources.length > 0 && (
+          <Card>
+            <div className="card-head">
+              <span className="card-title">Where it came from</span>
+            </div>
+            <div className="stack">
+              {sources.map((row) => (
+                <div key={row.label} className="row">
+                  <span style={{ fontSize: 13 }}>{row.label}</span>
+                  <span className="grow" />
+                  <span className={`num ${row.amount >= 0 ? 'pos' : 'neg'}`} style={{ fontSize: 13 }}>
+                    {money(row.amount, { sign: true })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {report.rollsGained > 0 && (
+          <div className="hint" style={{ marginBottom: 10 }}>
+            {report.rollsGained} roll{report.rollsGained === 1 ? '' : 's'} waiting for you.
+          </div>
+        )}
+
+        {report.notes.length > 0 && (
+          <>
+            <SectionLabel>What happened</SectionLabel>
+            <Card flush>
+              {report.notes.map((note, i) => (
+                <div key={i} className="listrow-static">
+                  <span style={{ fontSize: 16, flex: 'none' }} aria-hidden="true">{note.icon}</span>
+                  <span
+                    className={note.tone === 'good' ? 'pos' : note.tone === 'bad' ? 'neg' : ''}
+                    style={{ fontSize: 13 }}
+                  >
+                    {note.text}
+                  </span>
+                </div>
+              ))}
+            </Card>
+          </>
+        )}
+
+        <button className="btn btn-primary btn-block" style={{ marginTop: 14 }} onClick={close}>
+          Back to it
+        </button>
       </div>
-      <button className="btn btn-primary btn-block" onClick={() => dispatch({ type: 'clearOfflineReport' })}>
-        Back to it
-      </button>
     </Modal>
   );
 }

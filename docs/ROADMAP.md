@@ -293,3 +293,46 @@ One piece was worth keeping. `index.html` now carries an inline-styled splash
 inside `#root` that React replaces on mount, and which after ten seconds says
 the game files did not load. It is a first paint in the normal case, and in the
 abnormal one it means this class of failure can never again be silent.
+
+## Phase 4 — everything you own is specific
+
+Chosen with the brief "no opponent, go deeper; something with teeth; progress
+you can see". Three pieces, each measured and shipped separately.
+
+**Premises and traits.** Opening a business is a shortlist of three, priced by
+what is right and wrong with each. Traits are permanent, move four different
+numbers, gate cards, and can be cured by the card they unlock. The prices are
+derived by `tools/traits.ts` rather than chosen — and building that tool found
+two levers pointing the wrong way. `eventRate` below 1 means more cards and
+cards pay, so giving it to flaws made neglect the most profitable purchase on
+the board (one flaw measured at 1.44x a clean site). `stakes` could not be made
+to work at all: instrumenting card wins and losses separately showed cards take
+6,858 and return 2,084 over ten minutes, so card cash is net negative and what
+cards really pay is the boosts they grant — scaling the swing symmetrically made
+a risky site *more* valuable, and scaling only the downside moved the total by
+2%. It was removed and those traits re-expressed in revenue and upkeep.
+
+**Staff.** A roster rather than a count. Tenure pays up to 25%, severance grows
+with service and is charged in full when a business closes. Both caps are
+load-bearing: uncapped tenure drifts staff output away from the wages paying for
+it and breaks the hiring invariant.
+
+**The return.** The offline simulation is instrumented — income attributed to
+source, net worth sampled into a curve, and up to six notable events collected.
+Writing the test for long-service milestones found a real bug: tenure runs on
+the wall clock, which has already advanced by the time the offline sim is
+called, so the "before" snapshot was comparing the present against itself and
+the note could never have fired in production. It also found the attribution
+was wrong — debt interest compounds onto the principal rather than leaving your
+cash, so counting it as an outgoing double-counted and broke the identity that
+earnings equals income minus repayments.
+
+Pacing held throughout: 34.2m median to IPO against a 35.0m baseline, with
+businesses per run unchanged and property use up from ~21 to ~30. The suite went
+from 36 tests to 65, and was run ten times consecutively to shake out a flaky
+assertion that compared a `Date.now()`-derived severance to four decimal places.
+
+### Still open
+Phase 5 is untouched: a luck pity counter, dividends and portfolio history,
+property renovation, a real luxury collection view, cross-run milestone
+unlocks, achievements, onboarding, and audio.

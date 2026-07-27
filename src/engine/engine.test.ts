@@ -800,7 +800,11 @@ describe('staff as people', () => {
     apply(s, { type: 'fireStaff', id: b.id, memberId: veteran.id });
 
     expect(b.roster.map((m) => m.id)).toEqual([rookie.id]);
-    expect(cashBefore - s.cash).toBeCloseTo(owed, 4);
+    // Severance is a function of Date.now(), and milliseconds pass between
+    // quoting it and paying it. Assert the amount relatively: any real defect
+    // here — the wrong person, the wrong formula — is off by orders of
+    // magnitude, not by a millisecond of accrued service.
+    expect(Math.abs(cashBefore - s.cash - owed) / owed).toBeLessThan(1e-4);
     expect(b.morale).toBeLessThan(moraleBefore);
   });
 
@@ -842,7 +846,7 @@ describe('staff as people', () => {
 
     const before = s.cash;
     apply(s, { type: 'sellBusiness', id: b.id });
-    expect(s.cash - before).toBeCloseTo(expected, 4);
+    expect(Math.abs(s.cash - before - expected) / expected).toBeLessThan(1e-4);
   });
 
   it('turns a legacy headcount into people who have been there all along', () => {
@@ -858,5 +862,108 @@ describe('staff as people', () => {
     expect(new Set(b.roster.map((m) => m.name)).size).toBe(3);
     for (const m of b.roster) expect(serviceYears(m)).toBeGreaterThan(4);
     expect((b as unknown as { staff?: number }).staff).toBeUndefined();
+  });
+});
+
+describe('the while-you-were-out report', () => {
+  it('attributes earnings to their source and they add up', () => {
+    const s = createInitialState();
+    s.cash = 5_000_000;
+    apply(s, { type: 'buyProperty', propertyId: s.properties.find((p) => p.rentYield > 0)!.id });
+    apply(s, { type: 'borrow', amount: 50_000 });
+    const cashBefore = s.cash;
+
+    const r = simulateOffline(s, 3600, 7200);
+
+    expect(r.fromBusinesses).toBeGreaterThan(0);
+    expect(r.fromProperty).toBeGreaterThan(0);
+    // Interest compounds onto the principal rather than taking cash, so it is
+    // reported separately and must not appear in the earnings identity.
+    expect(r.interestAccrued).toBeGreaterThan(0);
+    expect(r.fromBusinesses + r.fromProperty - r.debtRepaid).toBeCloseTo(s.cash - cashBefore, 2);
+    expect(r.earned).toBeCloseTo(s.cash - cashBefore, 6);
+  });
+
+  it('draws a curve that starts where net worth was and ends where it is', () => {
+    const s = createInitialState();
+    const before = netWorth(s);
+    const r = simulateOffline(s, 3600, 7200);
+
+    expect(r.curve.length).toBeGreaterThan(3);
+    expect(r.curve[0]).toBeCloseTo(before, 4);
+    expect(r.curve[r.curve.length - 1]).toBeCloseTo(netWorth(s), 4);
+    expect(r.netWorthBefore).toBeCloseTo(before, 4);
+    expect(r.netWorthAfter).toBeCloseTo(netWorth(s), 4);
+    for (const point of r.curve) expect(Number.isFinite(point)).toBe(true);
+  });
+
+  it('reports a development that finished while you were away', () => {
+    const s = createInitialState();
+    s.cash = 50_000_000;
+    const land = s.properties.find((p) => p.kind === 'land')!;
+    apply(s, { type: 'buyProperty', propertyId: land.id });
+    apply(s, { type: 'developProperty', propertyId: land.id, devType: DEVELOPMENT_OPTIONS[0].type });
+    expect(land.development).not.toBeNull();
+
+    const r = simulateOffline(s, 12 * 3600, 24 * 3600);
+    expect(land.development).toBeNull();
+    expect(r.notes.some((n) => /finished at/.test(n.text))).toBe(true);
+  });
+
+  it('notices somebody passing a service milestone', () => {
+    const s = createInitialState();
+    const b = s.businesses[0];
+    hire(b);
+    // Just short of five years when you leave.
+    // Five and a half years of service now, two of which happened while away,
+    // so they were at 3.5 years when the player left and crossed five since.
+    // Five is the smallest milestone that counts — a game year is two and a
+    // half real minutes, so anything shorter fires on every absence.
+    b.roster[0].hiredAt = Date.now() - TUNING.secondsPerGameYear * 5.5 * 1000;
+
+    const r = simulateOffline(s, TUNING.secondsPerGameYear * 2, 24 * 3600);
+    const milestone = r.notes.find((n) => /passed 5 years/.test(n.text));
+    expect(milestone, JSON.stringify(r.notes)).toBeTruthy();
+    expect(milestone!.text).toContain(b.roster[0].name);
+  });
+
+  it('stays quiet when nothing worth reporting happened', () => {
+    const s = createInitialState();
+    const r = simulateOffline(s, TUNING.offlineMinSeconds + 1, 24 * 3600);
+    // A fresh empire over a minute: no debt, no builds, no milestones. Market
+    // drift may or may not clear the threshold, so the bound is "not a wall".
+    expect(r.notes.length).toBeLessThanOrEqual(3);
+  });
+
+  it('never returns a wall of notes, however much happened', () => {
+    const s = createInitialState();
+    s.cash = 1e9;
+    // Everything at once: a big roster of near-milestone lifers, debt, and a
+    // long enough absence for every market to have moved.
+    const b = s.businesses[0];
+    b.level = 20;
+    for (let i = 0; i < 12; i++) {
+      hire(b);
+      b.roster[i].hiredAt = Date.now() - TUNING.secondsPerGameYear * 9.9 * 1000;
+    }
+    apply(s, { type: 'borrow', amount: 100_000 });
+    for (const p of s.properties.slice(0, 5)) p.owned = true;
+
+    const r = simulateOffline(s, 24 * 3600, 24 * 3600);
+    expect(r.notes.length).toBeLessThanOrEqual(6);
+    // And the long-service lines collapse rather than listing twelve people.
+    expect(r.notes.filter((n) => n.icon === '🎖').length).toBeLessThanOrEqual(2);
+    for (const n of r.notes) {
+      expect(n.text.length).toBeGreaterThan(0);
+      expect(['good', 'bad', 'neutral']).toContain(n.tone);
+    }
+  });
+
+  it('survives a save round-trip with the report attached', () => {
+    const s = createInitialState();
+    s.offlineReport = simulateOffline(s, 3600, 7200);
+    const restored = JSON.parse(JSON.stringify(s)) as GameState;
+    expect(restored.offlineReport!.curve).toEqual(s.offlineReport!.curve);
+    expect(restored.offlineReport!.notes.length).toBe(s.offlineReport!.notes.length);
   });
 });

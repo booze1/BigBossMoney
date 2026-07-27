@@ -304,6 +304,37 @@ export interface Stats {
   playTime: number;
 }
 
+/** One notable thing that happened while the player was away. */
+export interface OfflineNote {
+  icon: string;
+  text: string;
+  tone: 'good' | 'bad' | 'neutral';
+}
+
+export interface OfflineResult {
+  seconds: number;
+  earned: number;
+  capped: boolean;
+  /** Where the money came from, and what left again to service the debt. */
+  fromBusinesses: number;
+  fromProperty: number;
+  /** Cash actually spent paying debt down. Part of the earnings identity. */
+  debtRepaid: number;
+  /**
+   * Interest that compounded onto the principal. Deliberately separate from
+   * debtRepaid: interest does not leave your cash, it grows what you owe, so
+   * counting it as an outgoing would double-count and break the identity that
+   * earnings equals income minus repayments.
+   */
+  interestAccrued: number;
+  netWorthBefore: number;
+  netWorthAfter: number;
+  /** Net worth sampled across the absence, for the sparkline. */
+  curve: number[];
+  rollsGained: number;
+  notes: OfflineNote[];
+}
+
 export interface Settings {
   reducedMotion: boolean;
   autoResolveManaged: boolean;
@@ -357,6 +388,6 @@ export interface GameState {
   /** Set when the player has crossed into bankruptcy territory. */
   bankruptcyWarning: boolean;
   /** Populated on load when offline earnings were collected. */
-  offlineReport: { seconds: number; earned: number; capped: boolean } | null;
+  offlineReport: OfflineResult | null;
   seenIntro: boolean;
 }

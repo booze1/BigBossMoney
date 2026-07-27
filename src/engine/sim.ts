@@ -1,19 +1,29 @@
-import type { Business, EventCardDef, GameState, PropertyKind } from './types';
+import type {
+  Business,
+  EventCardDef,
+  GameState,
+  OfflineNote,
+  OfflineResult,
+  PropertyKind,
+} from './types';
 import { TUNING } from './content/tuning';
 import { MANAGER_BY_TIER } from './content/businesses';
 import { EVENTS_BY_CATEGORY, EVENT_BY_ID } from './content/events';
 import { NEWS_TEMPLATES } from './content/markets';
-import { PROPERTY_HEADLINES, generateListing } from './content/realestate';
+import { DEVELOPMENT_BY_TYPE, PROPERTY_HEADLINES, generateListing } from './content/realestate';
 import { LUXURY_BY_ID } from './content/luxury';
 import {
   businessFinancials,
   freeRollInterval,
   netWorth,
   propertyRentPerSecond,
+  serviceYears,
+  totalDebt,
 } from './selectors';
 import { traitEventRate } from './premises';
 import { addCash, addLog, addNews, coverShortfall, grantRolls } from './mutations';
 import { chance, gaussian, pick, range, uid } from './rng';
+import { money } from './format';
 import { resolveEventChoice } from './events';
 
 /**
@@ -405,22 +415,53 @@ function autoResolve(s: GameState, businessId: string, defId: string, efficiency
 
 // ----------------------------------------------------------------- offline
 
-export interface OfflineResult {
-  seconds: number;
-  earned: number;
-  capped: boolean;
-}
+const CURVE_POINTS = 24;
+/** Beyond this the report stops being read. */
+const MAX_NOTES = 6;
 
 /**
  * Fast-forwards the empire for time spent away. Runs at a reduced rate and is
  * capped, so being away is always worse than playing — but never wasted.
+ *
+ * It also reports. Coming back to a single number told the player nothing about
+ * what their empire had actually been doing, so the loop is instrumented:
+ * income is attributed to its source, net worth is sampled for a curve, and
+ * anything worth remarking on — a development finishing, a ticker moving hard,
+ * somebody passing ten years of service — is collected as it happens.
  */
 export function simulateOffline(s: GameState, elapsedSeconds: number, capSeconds: number): OfflineResult {
   const capped = elapsedSeconds > capSeconds;
   const seconds = Math.min(elapsedSeconds, capSeconds);
 
   const before = s.cash;
+  const netWorthBefore = netWorth(s);
   const rt = createRuntime();
+
+  // Snapshots taken before anything moves, so the report can diff against them.
+  const pricesBefore = new Map(s.assets.map((a) => [a.id, a.price]));
+  const indicesBefore = new Map(s.cities.map((c) => [c.id, c.index]));
+  const buildingBefore = new Set(s.properties.filter((p) => p.development).map((p) => p.id));
+  const boostsBefore = new Map(s.boosts.map((b) => [b.id, b.label]));
+  const rollsBefore = s.rollTokens;
+  // Tenure runs on the wall clock, and by the time this is called the clock has
+  // already advanced past the absence. Measuring "before" at Date.now() would
+  // compare the present against itself, so no one could ever be seen crossing a
+  // milestone. The baseline is the moment the player actually left — the full
+  // elapsed time, not the capped simulation window, because service accrues
+  // whether or not the offline earnings did.
+  const awayStart = Date.now() - elapsedSeconds * 1000;
+  const serviceBefore = new Map<string, number>();
+  for (const b of s.businesses) {
+    for (const m of b.roster) serviceBefore.set(m.id, serviceYears(m, awayStart));
+  }
+
+  let fromBusinesses = 0;
+  let fromProperty = 0;
+  let debtRepaid = 0;
+  let interestAccrued = 0;
+  const curve: number[] = [netWorthBefore];
+  const sampleEvery = seconds / CURVE_POINTS;
+  let sinceSample = 0;
 
   // Coarse steps: enough resolution for prices and developments to move
   // sensibly, cheap enough to run instantly for a multi-hour absence.
@@ -431,18 +472,41 @@ export function simulateOffline(s: GameState, elapsedSeconds: number, capSeconds
 
     // Income accrues at the offline rate; everything else runs normally so
     // markets, developments and city indices are current when you return.
-    const cashBefore = s.cash;
+    // Businesses and property are stepped separately only so the report can
+    // say which of them earned what.
+    const beforeBusinesses = s.cash;
     stepBusinesses(s, dt);
-    stepProperties(s, dt);
-    const earnedThisStep = s.cash - cashBefore;
-    s.cash = cashBefore + earnedThisStep * TUNING.offlineRate;
+    const businessEarned = (s.cash - beforeBusinesses) * TUNING.offlineRate;
+    s.cash = beforeBusinesses + businessEarned;
+    fromBusinesses += businessEarned;
 
+    const beforeProperty = s.cash;
+    stepProperties(s, dt);
+    const propertyEarned = (s.cash - beforeProperty) * TUNING.offlineRate;
+    s.cash = beforeProperty + propertyEarned;
+    fromProperty += propertyEarned;
+
+    const cashBeforeDebt = s.cash;
+    const owedBeforeDebt = totalDebt(s);
     stepDebt(s, dt);
+    const repaid = cashBeforeDebt - s.cash;
+    debtRepaid += repaid;
+    // Interest grows the principal rather than taking cash, so it has to be
+    // read off the balance: whatever the debt grew by, plus whatever was paid
+    // down out of cash in the same step.
+    interestAccrued += totalDebt(s) - owedBeforeDebt + repaid;
+
     stepBoosts(s, dt);
     stepRolls(s, dt);
     stepMarkets(s, dt, rt);
     stepCities(s, dt, rt);
     stepLuxury(s, dt, rt);
+
+    sinceSample += dt;
+    if (sinceSample >= sampleEvery && curve.length < CURVE_POINTS) {
+      curve.push(netWorth(s));
+      sinceSample = 0;
+    }
 
     remaining -= dt;
   }
@@ -450,7 +514,143 @@ export function simulateOffline(s: GameState, elapsedSeconds: number, capSeconds
   coverShortfall(s);
   const nw = netWorth(s);
   if (nw > s.stats.peakNetWorth) s.stats.peakNetWorth = nw;
+  curve.push(nw);
 
-  return { seconds, earned: s.cash - before, capped };
+  return {
+    seconds,
+    earned: s.cash - before,
+    capped,
+    fromBusinesses,
+    fromProperty,
+    debtRepaid,
+    interestAccrued,
+    netWorthBefore,
+    netWorthAfter: nw,
+    curve,
+    rollsGained: Math.max(0, s.rollTokens - rollsBefore),
+    notes: collectNotes(s, {
+      pricesBefore,
+      indicesBefore,
+      buildingBefore,
+      boostsBefore,
+      serviceBefore,
+      interestAccrued,
+    }),
+  };
+}
+
+interface NoteContext {
+  pricesBefore: Map<string, number>;
+  indicesBefore: Map<string, number>;
+  buildingBefore: Set<string>;
+  boostsBefore: Map<string, string>;
+  serviceBefore: Map<string, number>;
+  interestAccrued: number;
+}
+
+/**
+ * What is worth telling the player about.
+ *
+ * Deliberately selective and hard-capped. Everything that moved would be a
+ * wall of text, and a wall of text is the same as no report at all — the
+ * player skims it and taps through. So each kind of note has its own budget,
+ * they are appended in priority order, and the whole list is truncated.
+ *
+ * Long service is the note most at risk of becoming noise: a game year is
+ * two and a half real minutes, so an hour away is twenty-four years and
+ * everybody crosses something. Only the milestones that read as an
+ * achievement count, and more than a couple are collapsed into one line.
+ */
+function collectNotes(s: GameState, ctx: NoteContext): OfflineNote[] {
+  const notes: OfflineNote[] = [];
+
+  // Developments that finished — the thing most worth coming back for, so it
+  // goes first and gets the largest budget.
+  const completed = s.properties.filter(
+    (p) => ctx.buildingBefore.has(p.id) && !p.development && p.developedType,
+  );
+  for (const p of completed.slice(0, 3)) {
+    const dev = DEVELOPMENT_BY_TYPE[p.developedType!];
+    notes.push({
+      icon: '🏗',
+      text: `${dev?.label ?? 'Development'} finished at ${p.name}.`,
+      tone: 'good',
+    });
+  }
+  if (completed.length > 3) {
+    notes.push({ icon: '🏗', text: `${completed.length - 3} more builds completed.`, tone: 'good' });
+  }
+
+  // People passing a round number of years. This is the one note that is not
+  // about money, and it is the reason the roster exists.
+  const MILESTONES = [5, 10, 25];
+  const milestones: { name: string; at: string; years: number }[] = [];
+  for (const b of s.businesses) {
+    for (const m of b.roster) {
+      const wasAt = ctx.serviceBefore.get(m.id);
+      if (wasAt === undefined) continue;
+      const nowAt = serviceYears(m);
+      const crossed = MILESTONES.filter((y) => wasAt < y && nowAt >= y).pop();
+      if (crossed !== undefined) milestones.push({ name: m.name, at: b.name, years: crossed });
+    }
+  }
+  // Biggest milestone first, so if only one line survives it is the best one.
+  milestones.sort((a, b) => b.years - a.years);
+  if (milestones.length <= 2) {
+    for (const ms of milestones) {
+      notes.push({ icon: '🎖', text: `${ms.name} passed ${ms.years} years at ${ms.at}.`, tone: 'good' });
+    }
+  } else {
+    const top = milestones[0];
+    notes.push({ icon: '🎖', text: `${top.name} passed ${top.years} years at ${top.at}.`, tone: 'good' });
+    notes.push({
+      icon: '🎖',
+      text: `${milestones.length - 1} others reached long-service milestones.`,
+      tone: 'good',
+    });
+  }
+
+  // The single biggest mover each way, and only if it actually moved.
+  const moves = s.assets
+    .map((a) => ({ a, change: (a.price - (ctx.pricesBefore.get(a.id) ?? a.price)) / (ctx.pricesBefore.get(a.id) || 1) }))
+    .sort((x, y) => y.change - x.change);
+  const best = moves[0];
+  const worst = moves[moves.length - 1];
+  if (best && best.change > 0.08) {
+    notes.push({ icon: '📈', text: `${best.a.ticker} up ${(best.change * 100).toFixed(0)}%.`, tone: 'good' });
+  }
+  if (worst && worst.change < -0.08) {
+    notes.push({ icon: '📉', text: `${worst.a.ticker} down ${Math.min(99, -worst.change * 100).toFixed(0)}%.`, tone: 'bad' });
+  }
+
+  const cityMoves = s.cities
+    .map((c) => ({ c, change: (c.index - (ctx.indicesBefore.get(c.id) ?? c.index)) / (ctx.indicesBefore.get(c.id) || 1) }))
+    .sort((x, y) => Math.abs(y.change) - Math.abs(x.change));
+  if (cityMoves[0] && Math.abs(cityMoves[0].change) > 0.03) {
+    const { c, change } = cityMoves[0];
+    notes.push({
+      icon: '🏙',
+      text: `${c.name} property ${change > 0 ? 'up' : 'down'} ${(Math.abs(change) * 100).toFixed(0)}%.`,
+      tone: change > 0 ? 'good' : 'bad',
+    });
+  }
+
+  // Boosts that ran out while you were not looking.
+  const expired = [...ctx.boostsBefore.entries()].filter(([id]) => !s.boosts.some((b) => b.id === id));
+  if (expired.length === 1) {
+    notes.push({ icon: '⏳', text: `${expired[0][1]} ran out.`, tone: 'neutral' });
+  } else if (expired.length > 1) {
+    notes.push({ icon: '⏳', text: `${expired.length} boosts ran out.`, tone: 'neutral' });
+  }
+
+  if (ctx.interestAccrued > 0) {
+    notes.push({
+      icon: '🏦',
+      text: `Your debt grew ${money(ctx.interestAccrued)} in interest.`,
+      tone: 'bad',
+    });
+  }
+
+  return notes.slice(0, MAX_NOTES);
 }
 
