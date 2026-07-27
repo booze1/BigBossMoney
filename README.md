@@ -1,8 +1,18 @@
 # Big Boss Money
 
+**▶ Play: https://booze1.github.io/BigBossMoney/**
+
 A business empire simulator that runs in the browser. Mobile-first, offline-first,
 no accounts, no server. Open one corner store with $1,500 and build it into
 something worth taking public.
+
+Best on a phone, or in a desktop browser at a narrow width — the layout is built
+for 390px. It installs to your home screen and keeps working with no signal.
+
+Every push to the default branch redeploys via `.github/workflows/deploy-pages.yml`,
+gated on the test suite.
+
+## Running it locally
 
 ```bash
 npm install
