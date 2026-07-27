@@ -13,10 +13,12 @@ import { RARITY_ORDER, TUNING } from './content/tuning';
 import {
   businessCost,
   businessFinancials,
+  hireStaffCost,
   isCategoryUnlocked,
   netWorth,
   offlineCapSeconds,
   rarityOdds,
+  saturationMultiplier,
   totalIncome,
   totalLuck,
   upgradeCost,
@@ -378,5 +380,62 @@ describe('real estate', () => {
     expect(before.rent).toBeGreaterThan(0);
     expect(after.rent).toBe(0);
     expect(after.net).toBeGreaterThan(before.net);
+  });
+});
+
+// ------------------------------------------------------------- saturation
+
+describe('market saturation', () => {
+  it('each additional business in a category earns less than the last', () => {
+    const s = createInitialState();
+    s.cash = 10_000_000_000;
+    const nets: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      apply(s, { type: 'buyBusiness', category: 'retail' });
+      const newest = s.businesses[s.businesses.length - 1];
+      nets.push(businessFinancials(s, newest).net);
+    }
+    for (let i = 1; i < nets.length; i++) {
+      expect(nets[i], `business ${i + 1} vs ${i}`).toBeLessThan(nets[i - 1]);
+    }
+  });
+
+  it('opening a new business never reduces an existing one', () => {
+    const s = createInitialState();
+    s.cash = 10_000_000_000;
+    const first = s.businesses[0];
+    const before = businessFinancials(s, first).net;
+    apply(s, { type: 'buyBusiness', category: 'retail' });
+    apply(s, { type: 'buyBusiness', category: 'retail' });
+    expect(businessFinancials(s, first).net).toBeCloseTo(before, 6);
+  });
+
+  it('saturation has a floor, so a business is never worthless', () => {
+    const s = createInitialState();
+    s.cash = 1e15;
+    for (let i = 0; i < 40; i++) apply(s, { type: 'buyBusiness', category: 'retail' });
+    const last = s.businesses[s.businesses.length - 1];
+    expect(saturationMultiplier(s, last)).toBeGreaterThanOrEqual(TUNING.saturationFloor);
+    expect(businessFinancials(s, last).net).toBeGreaterThan(0);
+  });
+
+  it('staff profitability does not run away with business level', () => {
+    // Wages and hiring costs must scale with level like revenue does, or
+    // "upgrade then max headcount" becomes the only strategy.
+    const paybackAt = (level: number) => {
+      const s = createInitialState();
+      s.cash = 1e12;
+      const b = s.businesses[0];
+      b.level = level;
+      const before = businessFinancials(s, b).net;
+      const cost = hireStaffCost(s, b);
+      apply(s, { type: 'hireStaff', id: b.id });
+      const gain = businessFinancials(s, b).net - before;
+      return cost / gain;
+    };
+    const low = paybackAt(1);
+    const high = paybackAt(10);
+    // Allow drift, but a level-10 hire must not be an order of magnitude better.
+    expect(high).toBeGreaterThan(low * 0.5);
   });
 });

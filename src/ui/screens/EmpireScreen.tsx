@@ -14,6 +14,7 @@ import {
   isCategoryUnlocked,
   managerHireCost,
   maxStaff,
+  nextSaturation,
   upgradeCost,
 } from '../../engine/selectors';
 import { clock, money, rate, pct } from '../../engine/format';
@@ -58,6 +59,7 @@ export function EmpireScreen() {
         const cost = businessCost(state, def);
         const owned = state.businesses.filter((b) => b.category === def.id).length;
         const affordable = state.cash >= cost;
+        const saturation = nextSaturation(state, def.id);
 
         return (
           <Card key={def.id} className={unlocked ? '' : 'locked'}>
@@ -73,10 +75,20 @@ export function EmpireScreen() {
                 <div className="hint" style={{ marginTop: 2 }}>{def.blurb}</div>
                 <div className="chiprow" style={{ marginTop: 8 }}>
                   <Chip>
-                    {money(def.baseRevenue * (1 - def.upkeepRatio - TUNING.rentRatio))}/s while renting
+                    {money(def.baseRevenue * saturation * (1 - def.upkeepRatio - TUNING.rentRatio))}/s
+                    {' '}while renting
                   </Chip>
                   <Chip>{pct(1 - def.upkeepRatio, 0)} margin</Chip>
+                  {saturation < 0.999 && (
+                    <Chip tone="warn">{pct(saturation, 0)} of full output</Chip>
+                  )}
                 </div>
+                {saturation < 0.999 && (
+                  <div className="hint" style={{ marginTop: 6 }}>
+                    You already run {owned} here. Each additional {def.name.toLowerCase()} earns less
+                    than the last — try a different category, or put the money into property.
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -224,7 +236,13 @@ function BusinessDetail({ business, onClose }: { business: Business; onClose: ()
               <span className="card-title">Income breakdown</span>
             </div>
             <div className="stack" style={{ fontSize: 13 }}>
-              <div className="row"><span className="dim">Gross revenue</span><span className="num pos">{rate(fin.gross)}</span></div>
+              {fin.saturation < 0.999 && (
+              <div className="row">
+                <span className="dim">Market saturation</span>
+                <span className="num warn">{pct(fin.saturation, 0)} of full output</span>
+              </div>
+            )}
+            <div className="row"><span className="dim">Gross revenue</span><span className="num pos">{rate(fin.gross)}</span></div>
               <div className="row"><span className="dim">Operating costs</span><span className="num neg">{rate(-(fin.upkeep - fin.wages - fin.rent - fin.managerSalary))}</span></div>
               {fin.rent > 0 && <div className="row"><span className="dim">Rent</span><span className="num neg">{rate(-fin.rent)}</span></div>}
               {fin.wages > 0 && <div className="row"><span className="dim">Wages</span><span className="num neg">{rate(-fin.wages)}</span></div>}

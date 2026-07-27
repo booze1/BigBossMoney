@@ -30,6 +30,18 @@ export const TUNING = {
 
   /** Business economics. */
   /**
+   * Market saturation. The n-th business in a category earns
+   * `saturationDecay^n` of full revenue, floored at `saturationFloor`.
+   *
+   * Without this, duplicates cost 1.3^n but earn a flat amount, and because
+   * late-game cash is effectively unlimited the answer to "what next" is
+   * always "another one of those" — an optimal player ended runs holding 90+
+   * businesses. Saturation gives each category a natural ceiling and pushes
+   * late capital into property and markets instead.
+   */
+  saturationDecay: 0.9,
+  saturationFloor: 0.12,
+  /**
    * Global multiplier on every category's base revenue. This is the master
    * pacing dial: it sets how many seconds a business takes to pay for itself,
    * and therefore how fast the whole empire compounds. Lower is slower.
@@ -37,12 +49,20 @@ export const TUNING = {
   baseIncomeScale: 1.0,
   costGrowthPerOwned: 1.3,
   upgradeCostFactor: 0.6,
-  upgradeCostGrowth: 1.35,
+  upgradeCostGrowth: 1.5,
   revenuePerLevel: 1.28,
   staffPerLevel: 2,
   staffRevenueBonus: 0.06,
-  /** Wage per staff member per second, as a fraction of base revenue. */
-  staffWageRatio: 0.04,
+  /**
+   * Wage per staff member per second, as a fraction of that business's
+   * level-adjusted revenue.
+   *
+   * Must stay below `staffRevenueBonus * (1 - upkeepRatio - rentRatio)` — the
+   * margin a hire actually adds — or hiring is a guaranteed loss and the whole
+   * staffing system is dead weight. At 0.06 bonus and ~0.335 margin that
+   * ceiling is ~0.020.
+   */
+  staffWageRatio: 0.008,
   /** Rent paid when a business has no owned commercial property behind it. */
   rentRatio: 0.12,
   /** Margin bonus for operating out of property you own. */
@@ -91,8 +111,16 @@ export const TUNING = {
 
   /** Real estate. */
   cityIndexVol: 0.0016,
-  /** Rent yields are quoted annually; this converts to per-second. */
-  secondsPerGameYear: 1_800,
+  /**
+   * Length of a financial year in real seconds. Governs rent, loan interest
+   * and luxury revaluation alike.
+   *
+   * At 1,800 a property took ~6,000s to pay for itself against ~900s for a
+   * business, so rental income was never worth buying and debt never bit. A
+   * shorter year puts property within reach of the saturated late game and
+   * makes leverage genuinely dangerous.
+   */
+  secondsPerGameYear: 150,
   listingRefreshSeconds: 300,
   listingsPerCity: 5,
   propertySaleFee: 0.05,

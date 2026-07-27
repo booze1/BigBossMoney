@@ -1,8 +1,8 @@
-import type { EventOutcome, GameState } from './types';
+import type { Business, EventOutcome, GameState } from './types';
 import { TUNING } from './content/tuning';
 import { CATEGORY_BY_ID } from './content/businesses';
 import { EVENT_BY_ID } from './content/events';
-import { empireIncomeMultiplier, maxStaff, totalLuck } from './selectors';
+import { empireIncomeMultiplier, maxStaff, saturationMultiplier, totalLuck } from './selectors';
 import { addBoost, addCash, addLog, clampMorale, grantRolls } from './mutations';
 import { chance } from './rng';
 import { money } from './format';
@@ -39,17 +39,16 @@ export function effectiveOdds(s: GameState, odds: number): number {
 function payoutBaseline(s: GameState, businessId: string | null): number {
   const b = businessId ? s.businesses.find((x) => x.id === businessId) : undefined;
   if (!b) {
-    const largest = s.businesses
-      .map((x) => baselineFor(s, x.category, x.level))
-      .sort((p, q) => q - p)[0];
+    const largest = s.businesses.map((x) => baselineFor(s, x)).sort((p, q) => q - p)[0];
     return largest ?? 25;
   }
-  return baselineFor(s, b.category, b.level);
+  return baselineFor(s, b);
 }
 
-function baselineFor(s: GameState, category: keyof typeof CATEGORY_BY_ID, level: number): number {
-  const def = CATEGORY_BY_ID[category];
-  const levelRevenue = def.baseRevenue * Math.pow(TUNING.revenuePerLevel, level - 1);
+function baselineFor(s: GameState, b: Business): number {
+  const def = CATEGORY_BY_ID[b.category];
+  const levelRevenue =
+    def.baseRevenue * Math.pow(TUNING.revenuePerLevel, b.level - 1) * saturationMultiplier(s, b);
   return levelRevenue * (1 - def.upkeepRatio) * empireIncomeMultiplier(s);
 }
 

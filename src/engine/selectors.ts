@@ -1,4 +1,4 @@
-import type { Business, City, GameState, Property, Rarity } from './types';
+import type { Business, CategoryId, City, GameState, Property, Rarity } from './types';
 import { TUNING, TIERS, RARITY_META, RARITY_ORDER } from './content/tuning';
 import { CATEGORY_BY_ID, MANAGER_BY_TIER, CategoryDef } from './content/businesses';
 import { DEVELOPMENT_BY_TYPE } from './content/realestate';
@@ -75,6 +75,29 @@ function categoryBoostMultiplier(s: GameState, business: Business): number {
     .reduce((mult, b) => mult * b.power, 1);
 }
 
+/**
+ * How much of full revenue a business earns, given how many others the player
+ * already runs in that category. Ordering is by founding order, so an existing
+ * business never loses output when a newer one opens beside it.
+ */
+export function saturationMultiplier(s: GameState, b: Business): number {
+  // Ranked by position in the list, which is founding order. Using foundedAt
+  // timestamps instead would tie for anything opened in the same millisecond
+  // and hand both businesses full output.
+  let rank = 0;
+  for (const x of s.businesses) {
+    if (x.id === b.id) break;
+    if (x.category === b.category) rank++;
+  }
+  return Math.max(TUNING.saturationFloor, Math.pow(TUNING.saturationDecay, rank));
+}
+
+/** What the next business in this category would earn, as a fraction. */
+export function nextSaturation(s: GameState, category: CategoryId): number {
+  const owned = s.businesses.filter((x) => x.category === category).length;
+  return Math.max(TUNING.saturationFloor, Math.pow(TUNING.saturationDecay, owned));
+}
+
 export interface BusinessFinancials {
   gross: number;
   upkeep: number;
@@ -82,6 +105,7 @@ export interface BusinessFinancials {
   wages: number;
   rent: number;
   managerSalary: number;
+  saturation: number;
   staffMultiplier: number;
   moraleMultiplier: number;
   boostMultiplier: number;
@@ -92,7 +116,8 @@ export function businessFinancials(s: GameState, b: Business): BusinessFinancial
   const def = CATEGORY_BY_ID[b.category];
   const manager = MANAGER_BY_TIER[b.manager];
 
-  const levelRevenue = def.baseRevenue * Math.pow(TUNING.revenuePerLevel, b.level - 1);
+  const saturation = saturationMultiplier(s, b);
+  const levelRevenue = def.baseRevenue * Math.pow(TUNING.revenuePerLevel, b.level - 1) * saturation;
   const staffMultiplier = 1 + b.staff * TUNING.staffRevenueBonus;
   const boostMultiplier = categoryBoostMultiplier(s, b) * empireIncomeMultiplier(s);
 
@@ -107,8 +132,13 @@ export function businessFinancials(s: GameState, b: Business): BusinessFinancial
 
   const fixed = baseline * upkeepRatio;
   const rent = ownsPremises ? 0 : baseline * TUNING.rentRatio;
-  const wages = def.baseRevenue * TUNING.staffWageRatio * b.staff;
-  const managerSalary = def.baseRevenue * manager.salaryRatio * Math.pow(TUNING.revenuePerLevel, b.level - 1);
+  // Wages and salary scale with the saturated, level-adjusted revenue.
+  // Wages previously ignored the level term while staff *output* included it,
+  // which made each hire ~12x more profitable at level 10 than at level 1 and
+  // turned "upgrade, then max headcount" into the only strategy worth playing.
+  const levelFactor = Math.pow(TUNING.revenuePerLevel, b.level - 1);
+  const wages = def.baseRevenue * saturation * levelFactor * TUNING.staffWageRatio * b.staff;
+  const managerSalary = def.baseRevenue * saturation * levelFactor * manager.salaryRatio;
 
   const upkeep = fixed + rent + wages + managerSalary;
 
@@ -119,6 +149,7 @@ export function businessFinancials(s: GameState, b: Business): BusinessFinancial
     wages,
     rent,
     managerSalary,
+    saturation,
     staffMultiplier,
     moraleMultiplier: b.morale,
     boostMultiplier,
@@ -283,7 +314,8 @@ export function maxStaff(b: Business): number {
 
 export function hireStaffCost(s: GameState, b: Business): number {
   const def = CATEGORY_BY_ID[b.category];
-  return def.baseRevenue * 8 * Math.pow(1.18, b.staff) * costMultiplier(s);
+  const levelFactor = Math.pow(TUNING.revenuePerLevel, b.level - 1);
+  return def.baseRevenue * levelFactor * 8 * Math.pow(1.18, b.staff) * costMultiplier(s);
 }
 
 export function managerHireCost(s: GameState, b: Business, tier: keyof typeof MANAGER_BY_TIER): number {

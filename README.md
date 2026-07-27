@@ -93,18 +93,35 @@ matter most:
   owning things. Cards are authored on a readable 0–600 "seconds of income"
   scale and multiplied by this.
 
-Pacing was measured by running the engine headlessly with a bot that reinvests
-optimally, resolves every card instantly and never idles. That bot reaches the
-$250M IPO threshold in a median of ~15 minutes across trials, with wide spread
-(9–26 minutes) because luck rolls and card outcomes genuinely swing runs. A human
-navigating screens, deciding what to buy and not reinvesting instantly should
-expect substantially longer.
+Pacing is measured by `tools/pacing.ts`, which drives the engine with a bot
+that reinvests into whichever purchase has the shortest payback — businesses,
+upgrades, staff, property, development, and buying premises to house a business.
+It resolves every card instantly and never idles, so it is a strict lower bound
+on a human run.
 
-Late-game growth is exponential and largely self-accelerating — raising the IPO
-threshold 60× only added about three minutes of bot time. That is characteristic
-of the genre, and the prestige wall is the intended answer to it. If the run
-feels too short or too long in real play, `baseIncomeScale` is the one-line
-change.
+That bot reaches the $250M IPO threshold in a median of ~21 minutes, holding
+around 21 businesses and 8 properties. A human navigating screens and deciding
+what to buy should expect several times that.
+
+**Market saturation** is what keeps this shaped. The n-th business in a category
+earns `saturationDecay^n` of full output, floored so nothing is ever worthless.
+Without it, duplicates cost `1.3^n` but earned a flat amount, and since
+late-game cash is effectively unlimited the answer to "what next" was always
+"another one of those" — the bot used to finish runs holding 90 to 145
+businesses and never touched property.
+
+Two related constraints are load-bearing and worth knowing before retuning:
+
+- `staffWageRatio` must stay below `staffRevenueBonus × (1 - upkeepRatio -
+  rentRatio)`, the margin a hire actually adds. Above it, hiring is a guaranteed
+  loss at every level and the staffing system is dead weight.
+- `upgradeCostGrowth` must exceed `revenuePerLevel` by enough that upgrade
+  payback degrades with level. They were 1.35 against 1.28, so levelling was
+  near-free exponential growth and dominated everything else.
+
+Growth is still exponential at the top end — that is characteristic of the genre
+and the prestige wall is the intended answer. Raising the IPO threshold 200×
+only adds about eight minutes of bot time.
 
 ## Tests
 
