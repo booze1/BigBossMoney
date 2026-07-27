@@ -1,0 +1,203 @@
+# Big Boss Money — audit and plan of attack
+
+Status of the current build (commit `d75aaf4`): ~7,000 lines, all six pillars
+wired end-to-end and playable. This document records what a code-level audit
+found and the order in which to finish it.
+
+Everything below was verified against the code or measured by running the
+engine headlessly — nothing here is a guess.
+
+---
+
+## Part 1 — Audit findings
+
+### P0 · Bugs that silently break a system
+
+**1. Property listings deplete permanently and never regenerate.**
+`sim.ts::stepListings` removes ~40% of unowned listings every 5 minutes. The
+only things that ever *add* listings are `state.ts` at run start and the paid
+`refreshListings` action. Over a long session every city's market drains to
+empty and the player is forced to pay to see any property at all. One of the
+three pillars quietly dies.
+
+**2. "Work the floor" has no cooldown — unbounded tap exploit.**
+`TUNING.hustleCooldown: 0.35` is declared and never referenced anywhere. The
+payout is `45 + netWorth × 0.0004`, so it *scales with net worth*: at $250M
+that is ~$100K per tap, and an autoclicker at 10 taps/sec yields ~$1M/sec.
+This trivially outperforms the entire empire and invalidates the economy.
+
+**3. `Boost.kind` values `'luck'` and `'offline'` are never produced.**
+Luck rewards write straight to `s.luck`; offline rewards write to
+`legacyUpgrades._offlineBonus`. But `selectors.totalLuck` sums luck-kind
+boosts, and the Luck screen renders an "Active boosts" row from it — a line
+that is permanently, structurally `0`. Dead surface presented as real.
+
+**4. Event cards are silently dropped when the queue is full.**
+`stepEvents` skips card creation entirely once `pendingEvents.length >= 6`.
+With a dozen unmanaged businesses most cards never reach the player and there
+is no indication anything was lost.
+
+### P1 · Claims the build does not currently honour
+
+**5. There is no service worker, and `manifest.webmanifest` has `"icons": []`.**
+The README and I both described this as an installable offline-capable PWA. It
+is installable in name only: a cold load with no network will fail, and the
+install prompt has no icon. This needs fixing or the claim needs withdrawing.
+
+**6. Zero tests.** No runner, no specs. The economy is a compounding
+simulation with many interacting multipliers — exactly the kind of code where
+a refactor breaks balance invisibly.
+
+**7. Accessibility is unaddressed.** One `aria-label` in the entire app, no
+`:focus-visible` styles anywhere, and 8 clickable `<div>`s that are not
+reachable or activatable by keyboard (business rows, asset rows, property
+rows — i.e. the primary navigation of three screens).
+
+### P2 · Depth gaps, measured
+
+**8. The event deck is the thinnest pillar relative to its importance.**
+48 cards: exactly 6 per category plus 12 generic. Measured on a single-business
+run: **first repeat at 4.7 minutes**, and only **9 distinct cards seen in 45
+minutes**. This is the system the whole "more interaction" design rests on, and
+it is the first thing to feel exhausted.
+
+**9. Cards have no memory and no consequences.** Every card is independent.
+Nothing references a previous decision, no choice ever spawns a follow-up, and
+a business that was wrecked by a bad call last week reads identically to one
+that has never had a problem.
+
+**10. Late-game growth is exponential and self-accelerating.** Measured: a 60×
+increase in the IPO threshold ($50M → $3B) added only ~3 minutes of bot time.
+Duplicate businesses cost `1.3^n` but earn a flat amount, which should
+self-limit — yet the optimal bot still ends a run holding 92–145 businesses,
+because late-game cash is effectively unlimited. There is no saturation
+mechanic and no soft cap.
+
+**11. Per-facet depth, honestly assessed:**
+
+| Pillar | Built | Missing for "finished" |
+|---|---|---|
+| Businesses | level, staff, manager, premises, morale | every instance in a category is identical; no traits; no cross-category synergy |
+| Event cards | 48 cards, odds, luck coupling, auto-resolve | volume; chains; memory; consequence |
+| Luck | rarity bands, luck-weighted odds, 27 rewards, reveal | no pity counter; no bad outcomes; nothing to *spend* Luck on |
+| Markets | 18 assets, random walk, news shocks, charts | no dividends; no portfolio history; owning a bank does not correlate with bank tickers |
+| Real estate | rent, development, business housing, city indices | only raw land is developable; no renovation; city index is pure weather the player cannot influence |
+| Luxury / Flex | 24 items, Flex→income/luck/credit/managers | list-only presentation for a system that is entirely about display; no per-item variance |
+| Prestige | Legacy Points, 7 upgrades | no milestone unlocks; run 2 is run 1 but faster — nothing changes structurally |
+
+### P3 · Dead code
+
+19 exported symbols are never referenced outside their own declaration:
+`Segmented`, `headerLuck`, `hasSave`, `nextRollPrice`, `rollFlexBonus`,
+`moneyExact`, `randomDevelopmentTime`, `rand`, `shuffle`, `unlockedCities`,
+`cityPriceLevel`, `holdingValue`, `legacyUpgradeCost`, `autoLineBalance`,
+`CATEGORY_LOOKUP`, `DEV_LOOKUP`, `visibleCategories`, `TierId`, `useGameState`.
+
+Also dead: `TUNING.tickSeconds`, `TUNING.hustleCooldown`, and the
+`settings.compactNumbers` flag (stored, defaulted, never read, never shown).
+`Business.lifetimeRevenue` is accumulated every tick and displayed nowhere.
+
+---
+
+## Part 2 — Plan of attack
+
+Ordered so that each phase leaves the game in a better *shippable* state than
+it found it. Phases 0–2 are correctness and honesty; 3–5 are depth.
+
+### Phase 0 — Stop the bleeding
+*Fixes things that are actively wrong. Nothing new.*
+
+- Regenerate property listings on the churn timer instead of only deleting
+  them; keep a minimum floor per unlocked city.
+- Wire `hustleCooldown` (client-side gate **and** an engine-side timestamp so
+  it cannot be dispatched around), and cap the net-worth scaling so it decays
+  into irrelevance rather than growing forever.
+- Either produce `luck`/`offline` boosts properly or delete both kinds and the
+  UI row that reads them. Prefer deleting — the direct-to-stat path is simpler.
+- Queue overflow: replace the oldest unresolved card rather than dropping the
+  new one, and surface a count so the player knows the queue is saturated.
+- Delete all 19 dead exports, 2 dead tuning keys, and `compactNumbers`.
+
+**Exit test:** a 4-hour headless run ends with every city still holding
+listings, and the hustle button contributing <2% of lifetime earnings.
+
+### Phase 1 — Make the claims true
+*Small, high-leverage, unblocks confident shipping.*
+
+- Vitest + engine invariant suite: net worth never NaN/Infinity; cash and debt
+  never negative simultaneously; offline simulation ≈ equivalent online
+  simulation within tolerance; save→load→save round-trips identically; every
+  roll reward and every one of the 48 cards applies without throwing.
+- Real service worker (precache the built assets, cache-first) and a generated
+  icon set, or drop the PWA claim from the README.
+- Accessibility: convert the 8 clickable `div`s to buttons, add
+  `:focus-visible` rings, label icon-only controls, verify contrast on
+  `--text-faint` against `--surface`.
+
+**Exit test:** `npm test` green; app loads with the network disabled; full
+keyboard traversal of every screen.
+
+### Phase 2 — Fix the economic shape
+*The one balance problem that content cannot paper over.*
+
+- Add market saturation: the *n*-th business in a category earns a decaying
+  share (e.g. `0.92^n`, floored) so stacking duplicates has a natural ceiling
+  and the answer to "what do I buy next" stops being "more of the same".
+- Re-tune `baseIncomeScale` against the headless bot once saturation lands,
+  targeting a bot median of 40–60 min (which should map to the 2–3h human run
+  originally specified).
+- Give the top of the ladder somewhere to go: property development and market
+  positions should become the dominant late-game income, not a 93rd nightclub.
+
+**Exit test:** bot median 40–60 min to IPO; bot ends with <25 businesses; no
+single system contributes >60% of lifetime earnings.
+
+### Phase 3 — Event cards to full depth
+*The headline pillar. Biggest player-visible win.*
+
+- Expand 48 → ~140 cards (18–20 per category, ~30 generic). Target: **45+
+  minutes before a repeat**, verified with the existing `repeats.ts` harness.
+- Card chains: an outcome can queue a specific follow-up card minutes later,
+  so decisions have a second act.
+- Per-business memory: a small tag set (`understaffed`, `bad_press`,
+  `union_dispute`) written by outcomes and gated on by later cards.
+- Rare high-stakes cards gated on business level, tier, and Flex, so the deck
+  visibly matures as the empire does.
+
+**Exit test:** measured first-repeat >45 min; at least one chain reachable per
+category; deck coverage test asserts every card is drawable.
+
+### Phase 4 — Depth pass on the remaining pillars
+*One focused change each, chosen for the highest depth-per-complexity.*
+
+- **Businesses:** per-instance traits rolled at founding (`prime location`,
+  `cursed lease`, `loyal staff`) — makes two nightclubs different objects.
+- **Luck:** pity counter (guaranteed Rare+ every N rolls), plus a Luck sink so
+  the stat is spendable, not only accumulative.
+- **Markets:** dividends on the value stocks, a portfolio value history chart,
+  and correlation between owned business categories and matching tickers.
+- **Real estate:** renovation for built property, and let commercial units be
+  upgraded rather than only land developed.
+- **Luxury:** a proper collection view — this system is *about* display and is
+  currently a list of rows.
+- **Prestige:** milestone unlocks across runs (new categories, cities, or
+  card decks at 2/5/10 IPOs) so later runs differ structurally.
+
+### Phase 5 — Finish and feel
+- Achievements tied to the existing `stats` block (which already tracks
+  everything needed and is barely surfaced).
+- Progressive onboarding: one contextual explainer the first time each screen
+  unlocks, instead of a single wall of text at launch.
+- Audio and haptics on rarity reveals and card resolution.
+- Surface `lifetimeRevenue` and run history; a post-IPO run summary screen.
+
+---
+
+## Suggested sequencing
+
+Phases 0–2 are non-negotiable for a finished game and are mostly small,
+well-understood edits. Phase 3 is where the game gets meaningfully better to
+play and is the largest single content investment. Phases 4–5 are polish that
+can ship incrementally.
+
+If only one thing gets done: **Phase 0, then Phase 3.**
