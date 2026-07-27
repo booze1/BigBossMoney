@@ -3,7 +3,7 @@ import { useGame } from '../../store';
 import type { Asset } from '../../engine/types';
 import { marketBoostMultiplier, portfolioCost, portfolioValue } from '../../engine/selectors';
 import { money, signedPct } from '../../engine/format';
-import { AmountSlider, Card, Chip, Empty, Modal, PriceChart, SectionLabel, Sparkline, Tile } from '../components/common';
+import { AmountSlider, Card, Chip, Empty, ListRow, Modal, PriceChart, SectionLabel, Sparkline, Tile } from '../components/common';
 
 export function MarketsScreen() {
   const { state } = useGame();
@@ -79,7 +79,7 @@ function AssetRow({ asset, onOpen }: { asset: Asset; onOpen: () => void }) {
   const holding = state.holdings.find((h) => h.assetId === asset.id);
 
   return (
-    <div className="listrow listrow-tap" onClick={onOpen}>
+    <ListRow onClick={onOpen} label={`${asset.name}, ${asset.ticker}`}>
       <div className="grow">
         <div className="row row-tight">
           <span className="num" style={{ fontWeight: 640, fontSize: 13.5 }}>{asset.ticker}</span>
@@ -98,7 +98,7 @@ function AssetRow({ asset, onOpen }: { asset: Asset; onOpen: () => void }) {
           {signedPct(change)}
         </span>
       </div>
-    </div>
+    </ListRow>
   );
 }
 
@@ -119,7 +119,7 @@ function Holdings({ onOpen }: { onOpen: (id: string) => void }) {
         const pnl = value - cost;
 
         return (
-          <div key={h.assetId} className="listrow listrow-tap" onClick={() => onOpen(asset.id)}>
+          <ListRow key={h.assetId} onClick={() => onOpen(asset.id)} label={`${asset.name} position`}>
             <div className="grow">
               <div className="num" style={{ fontWeight: 620, fontSize: 13.5 }}>{asset.ticker}</div>
               <div className="faint num" style={{ fontSize: 11.5 }}>
@@ -132,7 +132,7 @@ function Holdings({ onOpen }: { onOpen: (id: string) => void }) {
                 {money(pnl, { sign: true })} · {signedPct(cost > 0 ? pnl / cost : 0)}
               </span>
             </div>
-          </div>
+          </ListRow>
         );
       })}
     </Card>

@@ -55,6 +55,29 @@ export function Meter({ value, color = 'var(--brand)' }: { value: number; color?
     </div>
   );
 }
+/**
+ * A tappable list row. Rendered as a real <button> when it has an action, so
+ * the primary navigation of the Empire, Markets and Estate screens is
+ * reachable by keyboard and announced correctly.
+ */
+export function ListRow({
+  children,
+  onClick,
+  label,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  /** Accessible name, since the visible content is a layout of many parts. */
+  label?: string;
+}) {
+  if (!onClick) return <div className="listrow">{children}</div>;
+  return (
+    <button className="listrow listrow-tap" onClick={onClick} aria-label={label}>
+      {children}
+    </button>
+  );
+}
+
 export function Modal({
   open,
   onClose,
@@ -68,10 +91,27 @@ export function Modal({
   children: React.ReactNode;
   dismissible?: boolean;
 }) {
+  // Escape closes any dismissible sheet — expected on desktop, and the only
+  // way out for a keyboard user.
+  useEffect(() => {
+    if (!open || !dismissible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, dismissible, onClose]);
+
   if (!open) return null;
   return (
     <div className="modal-backdrop" onClick={dismissible ? onClose : undefined}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
         {dismissible && <div className="modal-grabber" />}
         {title && <h2 className="modal-title">{title}</h2>}
         {children}

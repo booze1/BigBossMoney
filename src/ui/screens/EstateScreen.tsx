@@ -13,7 +13,7 @@ import {
   realEstateValue,
 } from '../../engine/selectors';
 import { clock, money, pct, rate, signedPct } from '../../engine/format';
-import { Card, Chip, Empty, Meter, Modal, SectionLabel, Sparkline, Tile } from '../components/common';
+import { Card, Chip, Empty, ListRow, Meter, Modal, SectionLabel, Sparkline, Tile } from '../components/common';
 
 const KIND_META = {
   residential: { icon: '🏠', label: 'Residential' },
@@ -157,7 +157,7 @@ function PropertyRow({ property, onOpen }: { property: Property; onOpen: () => v
   const gain = property.owned ? value - property.purchasePrice : 0;
 
   return (
-    <div className="listrow listrow-tap" onClick={onOpen}>
+    <ListRow onClick={onOpen} label={property.name}>
       <div className="avatar">{meta.icon}</div>
       <div className="grow">
         <div className="truncate" style={{ fontWeight: 570, fontSize: 13.5 }}>{property.name}</div>
@@ -194,7 +194,7 @@ function PropertyRow({ property, onOpen }: { property: Property; onOpen: () => v
           <span className="faint" style={{ fontSize: 11.5 }}>{KIND_META[property.kind].label}</span>
         )}
       </div>
-    </div>
+    </ListRow>
   );
 }
 

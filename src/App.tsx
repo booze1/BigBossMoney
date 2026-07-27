@@ -64,12 +64,13 @@ export default function App() {
       {tab === 'flex' && <FlexScreen />}
       {tab === 'luck' && <LuckScreen />}
 
-      <nav className="tabbar">
+      <nav className="tabbar" aria-label="Main">
         {TABS.map((t) => (
           <button
             key={t.id}
             className={`tab ${tab === t.id ? 'active' : ''}`}
             onClick={() => setTab(t.id)}
+            aria-current={tab === t.id ? 'page' : undefined}
           >
             <span className="tab-icon">{t.icon}</span>
             <span>{t.label}</span>
@@ -100,7 +101,9 @@ export default function App() {
           >
             <div className="row" style={{ padding: '14px 16px 6px' }}>
               <span className="modal-title" style={{ margin: 0 }}>The Boss</span>
-              <button className="icon-btn" onClick={() => setBossOpen(false)}>✕</button>
+              <button className="icon-btn" onClick={() => setBossOpen(false)} aria-label="Close">
+                ✕
+              </button>
             </div>
             <BossScreen />
           </div>
@@ -161,7 +164,7 @@ function Header({ onOpenBoss }: { onOpenBoss: () => void }) {
 function Toasts() {
   const { toasts } = useGame();
   return (
-    <div className="toasts">
+    <div className="toasts" role="status" aria-live="polite">
       {toasts.map((t) => (
         <div key={t.id} className={`toast ${t.tone}`}>{t.message}</div>
       ))}
@@ -184,7 +187,7 @@ function RarityFlash() {
   const color = flash.rarity ? RARITY_META[flash.rarity].color : 'var(--legendary)';
 
   return (
-    <div className="flash" onClick={() => dispatch({ type: 'clearFlash' })}>
+    <div className="flash" onClick={() => dispatch({ type: 'clearFlash' })} role="status" aria-live="polite">
       <div style={{ color, position: 'relative' }}>
         {!state.settings.reducedMotion && (
           <>

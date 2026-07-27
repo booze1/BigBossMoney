@@ -17,7 +17,7 @@ import {
   upgradeCost,
 } from '../../engine/selectors';
 import { clock, money, rate, pct } from '../../engine/format';
-import { Card, Chip, Meter, Modal, SectionLabel, Empty } from '../components/common';
+import { Card, Chip, ListRow, Meter, Modal, SectionLabel, Empty } from '../components/common';
 
 export function EmpireScreen() {
   const { state, dispatch } = useGame();
@@ -134,7 +134,7 @@ function BusinessRow({ business, onOpen }: { business: Business; onOpen: () => v
   const manager = MANAGER_BY_TIER[business.manager];
 
   return (
-    <div className="listrow listrow-tap" onClick={onOpen}>
+    <ListRow onClick={onOpen} label={`${business.name}, level ${business.level}`}>
       <div className="avatar" style={{ borderColor: def.accent + '55' }}>{def.icon}</div>
       <div className="grow">
         <div className="row row-tight">
@@ -165,7 +165,7 @@ function BusinessRow({ business, onOpen }: { business: Business; onOpen: () => v
           </span>
         )}
       </div>
-    </div>
+    </ListRow>
   );
 }
 

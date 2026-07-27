@@ -7,11 +7,13 @@ something worth taking public.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm run build    # static bundle in dist/
+npm run test     # engine invariant suite
+npm run build    # static bundle in dist/, including a generated service worker
 ```
 
 The build in `dist/` is fully static — drop it on any host. It installs as a PWA
-and keeps playing without a network connection.
+and a cold load with no network works: `scripts/build-sw.mjs` precaches the
+build output and the worker serves it cache-first.
 
 ## The game
 
@@ -103,6 +105,25 @@ threshold 60× only added about three minutes of bot time. That is characteristi
 of the genre, and the prestige wall is the intended answer to it. If the run
 feels too short or too long in real play, `baseIncomeScale` is the one-line
 change.
+
+## Tests
+
+`npm test` runs the engine invariant suite (`src/engine/engine.test.ts`). It
+covers content integrity (every card resolvable, every roll reward grants
+something, no dead table entries), economy invariants (cash never negative, no
+buy-then-sell arbitrage, fresh businesses profitable while renting), the luck
+distribution, offline simulation bounds, save round-tripping, prestige, and the
+real-estate systems.
+
+The suite is mutation-tested: re-introducing the listing-depletion bug or the
+uncapped hustle each make it fail.
+
+## Accessibility
+
+Every tappable list row is a real button with an accessible name, so the primary
+navigation of the Empire, Markets and Estate screens is keyboard-reachable.
+Sheets are `role="dialog"` and close on Escape. Focus is visible throughout, and
+toasts and rarity reveals are announced via live regions.
 
 ## Notes
 
