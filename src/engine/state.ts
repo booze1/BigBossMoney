@@ -21,15 +21,22 @@ function emptyStats(): Stats {
   };
 }
 
-export function createBusiness(category: Business['category'], existingNames: string[]): Business {
+export function createBusiness(
+  category: Business['category'],
+  existingNames: string[],
+  /** Set when opening from a premises shortlist, which names and shapes it. */
+  from?: { name: string; traits: string[] },
+): Business {
   const def = CATEGORY_BY_ID[category];
   const unused = def.names.filter((n) => !existingNames.includes(n));
-  const name = unused.length > 0 ? pick(unused) : `${pick(def.names)} ${existingNames.length + 1}`;
+  const fallback = unused.length > 0 ? pick(unused) : `${pick(def.names)} ${existingNames.length + 1}`;
+  const name = from?.name ?? fallback;
 
   return {
     id: uid('biz'),
     category,
     name,
+    traits: from?.traits ?? [],
     level: 1,
     staff: 0,
     manager: 'none',
@@ -78,6 +85,7 @@ export function createInitialState(carry?: CarryOver): GameState {
     debt: [],
 
     businesses: [firstBusiness],
+    premises: {},
     assets: createAssets(),
     holdings: [],
     cities,

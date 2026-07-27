@@ -35,6 +35,12 @@ export interface Business {
   manager: ManagerTier;
   /** Property id backing this business, or null if renting. */
   propertyId: string | null;
+  /**
+   * Trait ids from the premises this was bought as. These are what make two
+   * businesses of the same category and level different from each other, and
+   * some of them can be cleared or acquired later through events.
+   */
+  traits: string[];
   /** Multiplier from recent event-card outcomes; decays toward 1. */
   morale: number;
   /** Seconds until this business surfaces its next event card. */
@@ -55,6 +61,19 @@ export interface Business {
    * no matter how large the deck is.
    */
   recentCards: string[];
+}
+
+/** One premises on the shortlist for a category you have not bought yet. */
+export interface PremisesOffer {
+  id: string;
+  category: CategoryId;
+  /** The name the business would trade under. */
+  name: string;
+  traits: string[];
+  /** Asking price as a multiple of the category's standard cost. */
+  priceMultiplier: number;
+  /** A line of estate-agent copy, unrelated to anything true. */
+  pitch: string;
 }
 
 /** A tradeable market instrument (equity or crypto). */
@@ -173,6 +192,10 @@ export interface EventOutcome {
   addTag?: { tag: string; seconds?: number };
   /** Clears a memory tag. */
   removeTag?: string;
+  /** Permanently gives the premises a trait. */
+  addTrait?: string;
+  /** Permanently clears a trait — how a bad site gets fixed rather than sold. */
+  removeTrait?: string;
   /** Queues a specific follow-up card, giving a decision a second act. */
   chain?: { cardId: string; delay: number };
   /** Flat cash delta. */
@@ -202,6 +225,10 @@ export interface EventCardDef {
   requiresTag?: string;
   /** Never drawn while the business carries this tag. */
   excludesTag?: string;
+  /** Only drawable when the premises carries this trait. */
+  requiresTrait?: string;
+  /** Never drawn while the premises carries this trait. */
+  excludesTrait?: string;
   /**
    * Follow-up cards are queued explicitly by a chain and never drawn at
    * random, so a second act cannot arrive before its first.
@@ -277,6 +304,11 @@ export interface GameState {
   debt: Loan[];
 
   businesses: Business[];
+  /**
+   * The premises shortlist per category, held in the save so backing out of a
+   * purchase cannot reroll it. Cleared for a category when you buy there.
+   */
+  premises: Partial<Record<CategoryId, PremisesOffer[]>>;
   assets: Asset[];
   holdings: Holding[];
   cities: City[];

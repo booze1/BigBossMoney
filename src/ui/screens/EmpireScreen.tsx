@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useGame } from '../../store';
-import type { Business } from '../../engine/types';
+import type { Business, CategoryId } from '../../engine/types';
+import { TRAIT_BY_ID } from '../../engine/content/traits';
 import { CATEGORIES, CATEGORY_BY_ID, MANAGERS, MANAGER_BY_TIER, MANAGER_ORDER } from '../../engine/content/businesses';
 import { TUNING } from '../../engine/content/tuning';
 import {
@@ -23,6 +24,7 @@ import { Card, Chip, ListRow, Meter, Modal, SectionLabel, Empty } from '../compo
 export function EmpireScreen() {
   const { state, dispatch } = useGame();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [shoppingIn, setShoppingIn] = useState<CategoryId | null>(null);
 
   const income = businessIncome(state);
   const open = state.businesses.find((b) => b.id === openId) ?? null;
@@ -94,17 +96,23 @@ export function EmpireScreen() {
             <button
               className={`btn btn-block ${affordable && unlocked ? 'btn-primary' : ''}`}
               style={{ marginTop: 11 }}
-              disabled={!unlocked || !affordable}
-              onClick={() => dispatch({ type: 'buyBusiness', category: def.id })}
+              disabled={!unlocked}
+              onClick={() => {
+                dispatch({ type: 'viewPremises', category: def.id });
+                setShoppingIn(def.id);
+              }}
             >
               {!unlocked
                 ? `Unlocks at ${money(def.unlockAt)} net worth`
-                : `Open for ${money(cost)}`}
+                : `See what's available — around ${money(cost)}`}
             </button>
           </Card>
         );
       })}
 
+      {shoppingIn && (
+        <PremisesSheet category={shoppingIn} onClose={() => setShoppingIn(null)} />
+      )}
       {open && <BusinessDetail business={open} onClose={() => setOpenId(null)} />}
     </div>
   );
@@ -205,6 +213,20 @@ function BusinessDetail({ business, onClose }: { business: Business; onClose: ()
           </div>
         </div>
       </div>
+
+      {business.traits.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <TraitChips traits={business.traits} />
+          {business.traits.map((id) => {
+            const t = TRAIT_BY_ID[id];
+            return t ? (
+              <div key={id} className="hint" style={{ marginTop: 6 }}>
+                <span style={{ fontWeight: 560 }}>{t.name}.</span> {t.blurb}
+              </div>
+            ) : null;
+          })}
+        </div>
+      )}
 
       <div className="tiles" style={{ marginBottom: 12 }}>
         <div className="tile">
@@ -436,5 +458,98 @@ function PremisesTab({ business }: { business: Business }) {
 
       {commercial.length === 0 && <Empty>You do not own any commercial property yet.</Empty>}
     </>
+  );
+}
+
+/** Trait chips, coloured by whether the trait helps or hurts. */
+function TraitChips({ traits }: { traits: string[] }) {
+  if (traits.length === 0) return null;
+  return (
+    <div className="chiprow" style={{ marginTop: 8 }}>
+      {traits.map((id) => {
+        const t = TRAIT_BY_ID[id];
+        if (!t) return null;
+        return (
+          <Chip key={id} tone={t.tone === 'good' ? 'pos' : t.tone === 'bad' ? 'neg' : 'warn'}>
+            {t.name}
+          </Chip>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The shortlist. Three premises, priced by what is wrong and right with them,
+ * and the same three until one is bought — so the decision cannot be dodged by
+ * closing the sheet and opening it again.
+ */
+function PremisesSheet({ category, onClose }: { category: CategoryId; onClose: () => void }) {
+  const { state, dispatch } = useGame();
+  const def = CATEGORY_BY_ID[category];
+  const offers = state.premises[category] ?? [];
+  const standard = businessCost(state, def);
+
+  return (
+    <Modal open onClose={onClose} title={`${def.name} — on the market`}>
+      <div className="screen">
+        <div className="hint" style={{ marginBottom: 12 }}>
+          Three sites, three prices. What is wrong with a place is in the asking
+          price, so the cheap one is cheap for a reason and the dear one is not a
+          swindle. Whatever you pick, you live with.
+        </div>
+
+        {offers.map((offer) => {
+          const price = standard * offer.priceMultiplier;
+          const affordable = state.cash >= price;
+          const traits = offer.traits.map((id) => TRAIT_BY_ID[id]).filter(Boolean);
+
+          return (
+            <Card key={offer.id}>
+              <div className="row">
+                <span style={{ fontWeight: 600 }}>{offer.name}</span>
+                <span className="grow" />
+                <span className="num faint" style={{ fontSize: 12 }}>
+                  {offer.priceMultiplier < 0.97
+                    ? `${pct(1 - offer.priceMultiplier, 0)} under`
+                    : offer.priceMultiplier > 1.03
+                      ? `${pct(offer.priceMultiplier - 1, 0)} over`
+                      : 'at asking'}
+                </span>
+              </div>
+
+              <TraitChips traits={offer.traits} />
+
+              {traits.map((t) => (
+                <div key={t.id} className="hint" style={{ marginTop: 6 }}>
+                  {t.blurb}
+                </div>
+              ))}
+              {traits.length === 0 && (
+                <div className="hint" style={{ marginTop: 6 }}>
+                  Nothing remarkable about it in either direction.
+                </div>
+              )}
+
+              <div className="hint" style={{ marginTop: 8, opacity: 0.55, fontStyle: 'italic' }}>
+                {offer.pitch}
+              </div>
+
+              <button
+                className={`btn btn-block ${affordable ? 'btn-primary' : ''}`}
+                style={{ marginTop: 11 }}
+                disabled={!affordable}
+                onClick={() => {
+                  dispatch({ type: 'buyBusiness', category, offerId: offer.id });
+                  onClose();
+                }}
+              >
+                {affordable ? `Take it — ${money(price)}` : `Need ${money(price)}`}
+              </button>
+            </Card>
+          );
+        })}
+      </div>
+    </Modal>
   );
 }

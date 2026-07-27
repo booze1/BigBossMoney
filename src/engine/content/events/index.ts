@@ -6,6 +6,7 @@ import { TECH_CARDS } from './tech';
 import { BANK_CARDS } from './bank';
 import { DEVCO_CARDS } from './devco';
 import { GENERAL_CARDS } from './general';
+import { PREMISES_CARDS } from './premises';
 
 /**
  * The full event deck, assembled from one file per category.
@@ -23,6 +24,7 @@ export const EVENT_CARDS: EventCardDef[] = [
   ...BANK_CARDS,
   ...DEVCO_CARDS,
   ...GENERAL_CARDS,
+  ...PREMISES_CARDS,
 ];
 
 export const EVENTS_BY_CATEGORY = EVENT_CARDS.reduce<Record<string, EventCardDef[]>>((acc, card) => {

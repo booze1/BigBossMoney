@@ -27,6 +27,7 @@ import {
   propertyYield,
   upgradeCost,
 } from '../src/engine/selectors';
+import { offersFor, traitRevenueMultiplier, traitUpkeepDelta } from '../src/engine/premises';
 import type { GameState } from '../src/engine/types';
 
 /** Only reinvest when the purchase pays for itself within this many seconds. */
@@ -46,12 +47,29 @@ function options(s: GameState): Buy[] {
 
   for (const def of CATEGORIES) {
     if (!isCategoryUnlocked(s, def)) continue;
-    const cost = businessCost(s, def);
-    // What the next one in this category would actually net, after saturation.
-    const net =
-      def.baseRevenue * nextSaturation(s, def.id) * (1 - def.upkeepRatio - TUNING.rentRatio) * mult;
-    if (net > 0) {
-      out.push({ payback: cost / net, cost, kind: 'business', run: () => apply(s, { type: 'buyBusiness', category: def.id }) });
+    const standard = businessCost(s, def);
+    // Each premises on the shortlist is its own option: traits move both the
+    // asking price and the revenue, so the bot has to price them individually
+    // rather than assume the category's list price. Scoring only the standard
+    // cost would let it buy an expensive site at a bargain's payback and
+    // report a run faster than any real one.
+    for (const offer of offersFor(s, def.id)) {
+      const cost = standard * offer.priceMultiplier;
+      const margin = 1 - def.upkeepRatio - traitUpkeepDelta(offer.traits) - TUNING.rentRatio;
+      const net =
+        def.baseRevenue *
+        nextSaturation(s, def.id) *
+        traitRevenueMultiplier(offer.traits) *
+        margin *
+        mult;
+      if (net > 0) {
+        out.push({
+          payback: cost / net,
+          cost,
+          kind: 'business',
+          run: () => apply(s, { type: 'buyBusiness', category: def.id, offerId: offer.id }),
+        });
+      }
     }
   }
 

@@ -11,6 +11,7 @@ import {
   netWorth,
   propertyRentPerSecond,
 } from './selectors';
+import { traitEventRate } from './premises';
 import { addCash, addLog, addNews, coverShortfall, grantRolls } from './mutations';
 import { chance, gaussian, pick, range, uid } from './rng';
 import { resolveEventChoice } from './events';
@@ -301,7 +302,9 @@ function stepEvents(s: GameState, dt: number): void {
   for (const b of s.businesses) {
     b.eventCooldown -= dt;
     if (b.eventCooldown > 0) continue;
-    b.eventCooldown = range(TUNING.eventCooldownMin, TUNING.eventCooldownMax);
+    // A premises with problems surfaces them more often; a quiet street less.
+    b.eventCooldown =
+      range(TUNING.eventCooldownMin, TUNING.eventCooldownMax) * traitEventRate(b.traits);
 
     const card = pickCardFor(s, b);
     if (!card) continue;
@@ -344,7 +347,9 @@ function isDrawable(c: EventCardDef, b: Business): boolean {
     !c.chainOnly &&
     (c.minLevel ?? 1) <= b.level &&
     (!c.requiresTag || b.tags[c.requiresTag] !== undefined) &&
-    (!c.excludesTag || b.tags[c.excludesTag] === undefined)
+    (!c.excludesTag || b.tags[c.excludesTag] === undefined) &&
+    (!c.requiresTrait || b.traits.includes(c.requiresTrait)) &&
+    (!c.excludesTrait || !b.traits.includes(c.excludesTrait))
   );
 }
 

@@ -7,6 +7,10 @@ import { resolveEventChoice } from './events';
 import { EVENT_CARDS, EVENT_BY_ID } from './content/events';
 import { ROLL_TABLE } from './content/luck';
 import { CATEGORIES } from './content/businesses';
+import { CURABLE_TRAITS, TRAIT_BY_ID, traitsFor } from './content/traits';
+import { generateOffers } from './premises';
+import { migrate } from './save';
+import { createBusiness } from './state';
 import { LUXURY_ITEMS } from './content/luxury';
 import { DEVELOPMENT_OPTIONS } from './content/realestate';
 import { RARITY_ORDER, TUNING } from './content/tuning';
@@ -532,5 +536,189 @@ describe('reported issues', () => {
     // The opening must stay affordable — this is the whole reason the brake
     // ramps instead of being a flat multiplier.
     expect(a).toBeLessThan(1.6);
+  });
+});
+
+describe('premises and traits', () => {
+  it('every trait a card names actually exists', () => {
+    for (const card of EVENT_CARDS) {
+      for (const id of [card.requiresTrait, card.excludesTrait]) {
+        if (id) expect(TRAIT_BY_ID[id], `${card.id} gates on trait ${id}`).toBeTruthy();
+      }
+      for (const choice of card.choices) {
+        for (const outcome of [choice.good, choice.bad]) {
+          for (const id of [outcome.addTrait, outcome.removeTrait]) {
+            if (id) expect(TRAIT_BY_ID[id], `${card.id} writes trait ${id}`).toBeTruthy();
+          }
+        }
+      }
+    }
+  });
+
+  it('every curable flaw has a card that can actually clear it', () => {
+    // Without this, a discounted premises is not a trade-off but a trap: the
+    // player takes the cheap site and can never do anything about what is
+    // wrong with it except sell.
+    for (const traitId of CURABLE_TRAITS) {
+      const cure = EVENT_CARDS.some((c) =>
+        c.choices.some((ch) => [ch.good, ch.bad].some((o) => o.removeTrait === traitId)),
+      );
+      expect(cure, `nothing can cure "${traitId}"`).toBe(true);
+    }
+  });
+
+  it('a cure card is only drawable on a business that has the flaw', () => {
+    for (const card of EVENT_CARDS) {
+      const cures = card.choices.flatMap((ch) =>
+        [ch.good, ch.bad].map((o) => o.removeTrait).filter(Boolean),
+      );
+      for (const cured of cures) {
+        expect(card.requiresTrait, `${card.id} cures ${cured} without requiring it`).toBe(cured);
+      }
+    }
+  });
+
+  it('offers three distinctly-named premises for every category', () => {
+    for (const def of CATEGORIES) {
+      const offers = generateOffers(def.id, []);
+      expect(offers).toHaveLength(3);
+      expect(new Set(offers.map((o) => o.name)).size).toBe(3);
+      for (const offer of offers) {
+        expect(offer.priceMultiplier).toBeGreaterThan(0.4);
+        expect(offer.priceMultiplier).toBeLessThan(2.2);
+        for (const t of offer.traits) expect(TRAIT_BY_ID[t]).toBeTruthy();
+      }
+    }
+  });
+
+  it('never offers a premises under a name already trading', () => {
+    const taken = CATEGORIES.flatMap((def) => def.names);
+    for (const def of CATEGORIES) {
+      for (const offer of generateOffers(def.id, taken)) {
+        expect(taken).not.toContain(offer.name);
+      }
+    }
+  });
+
+  it('charges the asking price and hands over the traits', () => {
+    const s = createInitialState();
+    s.cash = 5_000_000;
+    apply(s, { type: 'viewPremises', category: 'retail' });
+    const offer = s.premises.retail![2];
+    const expected = businessCost(s, CATEGORIES[0]) * offer.priceMultiplier;
+    const before = s.cash;
+
+    apply(s, { type: 'buyBusiness', category: 'retail', offerId: offer.id });
+
+    const bought = s.businesses[s.businesses.length - 1];
+    expect(bought.name).toBe(offer.name);
+    expect(bought.traits).toEqual(offer.traits);
+    expect(before - s.cash).toBeCloseTo(expected, 4);
+  });
+
+  it('regenerates the shortlist only after a purchase', () => {
+    const s = createInitialState();
+    s.cash = 5_000_000;
+    apply(s, { type: 'viewPremises', category: 'retail' });
+    const first = s.premises.retail!.map((o) => o.id);
+
+    // Looking again must not reroll — otherwise the choice is free to dodge.
+    apply(s, { type: 'viewPremises', category: 'retail' });
+    expect(s.premises.retail!.map((o) => o.id)).toEqual(first);
+
+    apply(s, { type: 'buyBusiness', category: 'retail', offerId: first[0] });
+    apply(s, { type: 'viewPremises', category: 'retail' });
+    expect(s.premises.retail!.map((o) => o.id)).not.toEqual(first);
+  });
+
+  it('traits move the money in the direction they claim to', () => {
+    const s = createInitialState();
+    const plain = s.businesses[0];
+    const base = businessFinancials(s, plain).net;
+
+    plain.traits = ['corner_lot']; // +8% revenue
+    expect(businessFinancials(s, plain).net).toBeGreaterThan(base);
+
+    plain.traits = ['backstreet']; // -10% revenue
+    expect(businessFinancials(s, plain).net).toBeLessThan(base);
+
+    plain.traits = ['damp']; // upkeep only
+    expect(businessFinancials(s, plain).net).toBeLessThan(base);
+
+    plain.traits = ['good_bones']; // cheaper to run
+    expect(businessFinancials(s, plain).net).toBeGreaterThan(base);
+  });
+
+  it('no single trait makes a fresh business unprofitable while renting', () => {
+    // The renting-is-viable invariant has to survive the worst premises the
+    // shortlist can hand you, or the bargain option is never takeable.
+    for (const def of CATEGORIES) {
+      for (const trait of traitsFor(def.id)) {
+        const s = createInitialState();
+        const b = createBusiness(def.id, [], { name: 'Test', traits: [trait.id] });
+        s.businesses = [b];
+        expect(
+          businessFinancials(s, b).net,
+          `${def.id} with "${trait.id}" cannot pay its own rent`,
+        ).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('keeps hiring worthwhile on every premises', () => {
+    // Wages scale off the same trait-adjusted reference as revenue, so a hire
+    // must be a gain regardless of what the site is like.
+    for (const def of CATEGORIES) {
+      for (const trait of traitsFor(def.id)) {
+        const s = createInitialState();
+        const b = createBusiness(def.id, [], { name: 'Test', traits: [trait.id] });
+        b.level = 5;
+        s.businesses = [b];
+        const before = businessFinancials(s, b).net;
+        b.staff = 1;
+        expect(
+          businessFinancials(s, b).net,
+          `hiring at ${def.id} with "${trait.id}" loses money`,
+        ).toBeGreaterThan(before);
+      }
+    }
+  });
+
+  it('cures a flaw permanently and survives a save round-trip', () => {
+    const s = createInitialState();
+    const b = s.businesses[0];
+    b.traits = ['damp'];
+    const damped = businessFinancials(s, b).net;
+
+    // Take the expensive line, which cannot fail.
+    s.cash = 1_000_000;
+    resolveEventChoice(s, b.id, 'prem_damp_survey', 0);
+    expect(b.traits).not.toContain('damp');
+    expect(businessFinancials(s, b).net).toBeGreaterThan(damped);
+
+    const restored = JSON.parse(JSON.stringify(s)) as typeof s;
+    expect(restored.businesses[0].traits).toEqual([]);
+  });
+
+  it('backfills traits on a save written before they existed', () => {
+    const s = createInitialState();
+    const legacy = JSON.parse(JSON.stringify(s));
+    for (const b of legacy.businesses) delete b.traits;
+    delete legacy.premises;
+
+    const loaded = migrate(legacy);
+    for (const b of loaded.businesses) expect(Array.isArray(b.traits)).toBe(true);
+    expect(loaded.premises).toEqual({});
+    // And the financials still resolve rather than throwing on undefined.
+    expect(Number.isFinite(businessFinancials(loaded, loaded.businesses[0]).net)).toBe(true);
+  });
+});
+
+describe('premises presentation', () => {
+  it('never sells two sites on the same shortlist with the same line', () => {
+    for (let i = 0; i < 200; i++) {
+      const offers = generateOffers('retail', []);
+      expect(new Set(offers.map((o) => o.pitch)).size).toBe(offers.length);
+    }
   });
 });

@@ -4,6 +4,7 @@ import { CATEGORY_BY_ID } from './content/businesses';
 import { EVENT_BY_ID } from './content/events';
 import { empireIncomeMultiplier, maxStaff, saturationMultiplier, totalLuck } from './selectors';
 import { addBoost, addCash, addLog, clampMorale, grantRolls } from './mutations';
+import { TRAIT_BY_ID } from './content/traits';
 import { chance } from './rng';
 import { money } from './format';
 
@@ -186,6 +187,24 @@ function applyOutcome(
 
   if (outcome.removeTag && business) {
     delete business.tags[outcome.removeTag];
+  }
+
+  // Traits are permanent, so these two are the strongest thing a card can do:
+  // curing a flaw is how a cheap bad site becomes a good one, and acquiring a
+  // trait is how a good one goes wrong.
+  if (outcome.addTrait && business && !business.traits.includes(outcome.addTrait)) {
+    business.traits.push(outcome.addTrait);
+    const def = TRAIT_BY_ID[outcome.addTrait];
+    if (def) lines.push(`${business.name} is now: ${def.name}`);
+  }
+
+  if (outcome.removeTrait && business) {
+    const before = business.traits.length;
+    business.traits = business.traits.filter((t) => t !== outcome.removeTrait);
+    if (business.traits.length < before) {
+      const def = TRAIT_BY_ID[outcome.removeTrait];
+      if (def) lines.push(`${def.name} — fixed for good`);
+    }
   }
 
   if (outcome.chain) {

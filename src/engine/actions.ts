@@ -25,12 +25,14 @@ import { addCash, addLog, setFlash } from './mutations';
 import { applyRoll, type RollResult } from './rolls';
 import { resolveEventChoice } from './events';
 import { createBusiness, createInitialState } from './state';
+import { offersFor } from './premises';
 import { money } from './format';
 import { uid } from './rng';
 
 export type Action =
   | { type: 'hustle' }
-  | { type: 'buyBusiness'; category: CategoryId }
+  | { type: 'viewPremises'; category: CategoryId }
+  | { type: 'buyBusiness'; category: CategoryId; offerId?: string }
   | { type: 'upgradeBusiness'; id: string }
   | { type: 'renameBusiness'; id: string; name: string }
   | { type: 'hireStaff'; id: string }
@@ -81,15 +83,38 @@ export function apply(s: GameState, action: Action): ActionResult {
     }
 
     // ---------------------------------------------------------- businesses
+    // Generating the shortlist is a mutation, so the UI asks for it explicitly
+    // when the sheet opens rather than a selector quietly creating one during
+    // render.
+    case 'viewPremises': {
+      offersFor(s, action.category);
+      return {};
+    }
+
     case 'buyBusiness': {
       const def = CATEGORY_BY_ID[action.category];
-      const cost = businessCost(s, def);
+      const shortlist = offersFor(s, action.category);
+      // No offer named means "just open one" — used by the headless tools and
+      // by any caller that does not care which premises it gets.
+      const offer = action.offerId
+        ? shortlist.find((o) => o.id === action.offerId)
+        : shortlist[0];
+      if (!offer) return { message: 'That premises is no longer available.', tone: 'bad' };
+
+      const cost = businessCost(s, def) * offer.priceMultiplier;
       if (s.cash < cost) return { message: 'Not enough cash.', tone: 'bad' };
       s.cash -= cost;
+
       const names = s.businesses.map((b) => b.name);
-      const b = createBusiness(action.category, names);
+      const b = createBusiness(action.category, names, { name: offer.name, traits: offer.traits });
       s.businesses.push(b);
       s.stats.businessesFounded += 1;
+
+      // The shortlist for this category is spent. A fresh one is generated on
+      // the next look rather than now, so it reflects the empire as it is when
+      // the player next goes shopping.
+      delete s.premises[action.category];
+
       addLog(s, `Opened ${b.name} for ${money(cost)}.`, 'good');
       return { message: `${b.name} is open for business.`, tone: 'good' };
     }

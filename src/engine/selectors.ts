@@ -3,6 +3,11 @@ import { TUNING, TIERS, RARITY_META, RARITY_ORDER } from './content/tuning';
 import { CATEGORIES, CATEGORY_BY_ID, MANAGER_BY_TIER, CategoryDef } from './content/businesses';
 import { DEVELOPMENT_BY_TYPE } from './content/realestate';
 import { LUXURY_BY_ID } from './content/luxury';
+import {
+  traitRevenueMultiplier,
+  traitStaffCapDelta,
+  traitUpkeepDelta,
+} from './premises';
 
 /**
  * Pure derived state. Nothing here mutates; the simulation and the UI both
@@ -117,7 +122,9 @@ export function businessFinancials(s: GameState, b: Business): BusinessFinancial
   const manager = MANAGER_BY_TIER[b.manager];
 
   const saturation = saturationMultiplier(s, b);
-  const levelRevenue = def.baseRevenue * Math.pow(TUNING.revenuePerLevel, b.level - 1) * saturation;
+  const traitRevenue = traitRevenueMultiplier(b.traits);
+  const levelRevenue =
+    def.baseRevenue * Math.pow(TUNING.revenuePerLevel, b.level - 1) * saturation * traitRevenue;
   const staffMultiplier = 1 + b.staff * TUNING.staffRevenueBonus;
   const boostMultiplier = categoryBoostMultiplier(s, b) * empireIncomeMultiplier(s);
 
@@ -128,7 +135,13 @@ export function businessFinancials(s: GameState, b: Business): BusinessFinancial
   // not just gross. Owning your premises removes rent and widens the margin.
   const baseline = levelRevenue * staffMultiplier;
   const ownsPremises = b.propertyId !== null;
-  const upkeepRatio = def.upkeepRatio - (ownsPremises ? TUNING.ownedPropertyMarginBonus : 0);
+  // Traits move the upkeep ratio rather than the upkeep amount, so a damp
+  // building costs proportionally more to run at every level rather than being
+  // a fixed early-game tax that stops mattering.
+  const upkeepRatio = Math.max(
+    0.02,
+    def.upkeepRatio - (ownsPremises ? TUNING.ownedPropertyMarginBonus : 0) + traitUpkeepDelta(b.traits),
+  );
 
   const fixed = baseline * upkeepRatio;
   const rent = ownsPremises ? 0 : baseline * TUNING.rentRatio;
@@ -136,9 +149,15 @@ export function businessFinancials(s: GameState, b: Business): BusinessFinancial
   // Wages previously ignored the level term while staff *output* included it,
   // which made each hire ~12x more profitable at level 10 than at level 1 and
   // turned "upgrade, then max headcount" into the only strategy worth playing.
+  // Wages and salary scale off the same reference as revenue, traits included.
+  // If they did not, a premises with a revenue trait would change how
+  // profitable a hire is, and the invariant that keeps hiring worthwhile
+  // (staffWageRatio below the margin a hire adds) would hold on some sites and
+  // fail on others.
   const levelFactor = Math.pow(TUNING.revenuePerLevel, b.level - 1);
-  const wages = def.baseRevenue * saturation * levelFactor * TUNING.staffWageRatio * b.staff;
-  const managerSalary = def.baseRevenue * saturation * levelFactor * manager.salaryRatio;
+  const scaleRef = def.baseRevenue * saturation * levelFactor * traitRevenue;
+  const wages = scaleRef * TUNING.staffWageRatio * b.staff;
+  const managerSalary = scaleRef * manager.salaryRatio;
 
   const upkeep = fixed + rent + wages + managerSalary;
 
@@ -335,7 +354,7 @@ export function upgradeCost(s: GameState, b: Business): number {
 }
 
 export function maxStaff(b: Business): number {
-  return b.level * TUNING.staffPerLevel;
+  return Math.max(1, b.level * TUNING.staffPerLevel + traitStaffCapDelta(b.traits));
 }
 
 export function hireStaffCost(s: GameState, b: Business): number {

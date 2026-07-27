@@ -25,8 +25,6 @@ export function clearSave(): void {
 
 /**
  * Loads a save and applies offline earnings, or creates a fresh game.
- * Missing fields are backfilled from a fresh state so a save from an older
- * build never crashes the app.
  */
 export function load(): GameState {
   let parsed: Partial<GameState> | null = null;
@@ -36,7 +34,18 @@ export function load(): GameState {
   } catch {
     parsed = null;
   }
+  return migrate(parsed);
+}
 
+/**
+ * Brings a parsed save up to the current shape, then applies offline earnings.
+ *
+ * Missing fields are backfilled from a fresh state so a save written by an
+ * older build never crashes the app — every field added since v1 has to be
+ * defaulted here, and the engine test drives this function directly rather
+ * than going through storage.
+ */
+export function migrate(parsed: Partial<GameState> | null): GameState {
   if (!parsed || typeof parsed !== 'object') return createInitialState();
 
   const fresh = createInitialState();
@@ -47,6 +56,7 @@ export function load(): GameState {
     // Nested collections are taken from the save when present, otherwise the
     // fresh defaults, so a partially-written save still loads.
     businesses: parsed.businesses?.length ? parsed.businesses : fresh.businesses,
+    premises: parsed.premises ?? {},
     assets: parsed.assets?.length ? parsed.assets : fresh.assets,
     cities: parsed.cities?.length ? parsed.cities : fresh.cities,
     properties: parsed.properties ?? fresh.properties,
@@ -65,10 +75,13 @@ export function load(): GameState {
     offlineReport: null,
   };
 
-  // Businesses from before memory tags existed need the field backfilled.
+  // Businesses from before memory tags and premises traits existed need the
+  // fields backfilled. An untraited business is valid — it just means every
+  // selector reads it as a plain site — so no trait is invented here.
   for (const b of state.businesses) {
     if (!b.tags) b.tags = {};
     if (!b.recentCards) b.recentCards = [];
+    if (!Array.isArray(b.traits)) b.traits = [];
   }
 
   // Boost durations serialise Infinity as null; restore permanent boosts.
