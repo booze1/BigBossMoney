@@ -55,6 +55,7 @@ export function load(): GameState {
     boosts: parsed.boosts ?? [],
     debt: parsed.debt ?? [],
     pendingEvents: parsed.pendingEvents ?? [],
+    scheduledEvents: parsed.scheduledEvents ?? [],
     news: parsed.news ?? [],
     log: parsed.log ?? [],
     legacyUpgrades: parsed.legacyUpgrades ?? {},
@@ -63,6 +64,12 @@ export function load(): GameState {
     flash: null,
     offlineReport: null,
   };
+
+  // Businesses from before memory tags existed need the field backfilled.
+  for (const b of state.businesses) {
+    if (!b.tags) b.tags = {};
+    if (!b.recentCards) b.recentCards = [];
+  }
 
   // Boost durations serialise Infinity as null; restore permanent boosts.
   for (const b of state.boosts) {

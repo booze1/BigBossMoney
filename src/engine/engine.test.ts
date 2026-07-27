@@ -4,7 +4,7 @@ import { createRuntime, step, simulateOffline } from './sim';
 import { apply } from './actions';
 import { applyRoll } from './rolls';
 import { resolveEventChoice } from './events';
-import { EVENT_CARDS } from './content/events';
+import { EVENT_CARDS, EVENT_BY_ID } from './content/events';
 import { ROLL_TABLE } from './content/luck';
 import { CATEGORIES } from './content/businesses';
 import { LUXURY_ITEMS } from './content/luxury';
@@ -80,6 +80,51 @@ describe('content integrity', () => {
         expect(choice.label.length, card.id).toBeGreaterThan(0);
         // An uncertain choice must have a distinct failure outcome to describe.
         if (choice.odds < 1) expect(choice.bad.text.length, `${card.id}/${choice.label}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('every chained follow-up exists and is chain-only', () => {
+    for (const card of EVENT_CARDS) {
+      for (const choice of card.choices) {
+        for (const outcome of [choice.good, choice.bad]) {
+          if (!outcome.chain) continue;
+          const target = EVENT_BY_ID[outcome.chain.cardId];
+          expect(target, `${card.id} chains to missing ${outcome.chain.cardId}`).toBeDefined();
+          // A second act must never be drawable before its first.
+          expect(target.chainOnly, `${outcome.chain.cardId} must be chainOnly`).toBe(true);
+          expect(outcome.chain.delay).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  it('every chain-only card is reachable from some chain', () => {
+    const reachable = new Set<string>();
+    for (const card of EVENT_CARDS) {
+      for (const choice of card.choices) {
+        for (const outcome of [choice.good, choice.bad]) {
+          if (outcome.chain) reachable.add(outcome.chain.cardId);
+        }
+      }
+    }
+    for (const card of EVENT_CARDS) {
+      if (card.chainOnly) expect(reachable.has(card.id), `${card.id} is unreachable`).toBe(true);
+    }
+  });
+
+  it('every tag a card requires is written by some outcome', () => {
+    const written = new Set<string>();
+    for (const card of EVENT_CARDS) {
+      for (const choice of card.choices) {
+        for (const outcome of [choice.good, choice.bad]) {
+          if (outcome.addTag) written.add(outcome.addTag.tag);
+        }
+      }
+    }
+    for (const card of EVENT_CARDS) {
+      if (card.requiresTag) {
+        expect(written.has(card.requiresTag), `${card.id} requires unwritable tag ${card.requiresTag}`).toBe(true);
       }
     }
   });

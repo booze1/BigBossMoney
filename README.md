@@ -29,6 +29,22 @@ one, and the greedy one has stated odds that your Luck stat quietly improves.
 Hire a manager and they will handle cards for you at a reduced payoff, which is
 the real trade: attention for throughput.
 
+The deck is 132 cards across seven files in `engine/content/events/`. Two things
+give it depth beyond volume:
+
+- **Memory tags.** Outcomes write situational tags onto the business —
+  `shrinkage`, `bad_press`, `tech_debt`, `consent_order`, `delayed` — and later
+  cards require or exclude them. A store that has been robbed draws different
+  cards from one that has not, and tags fade so nothing is permanent.
+- **Chains.** An outcome can queue a specific follow-up minutes later, giving a
+  decision a second act. Take the funding and the board meeting arrives; let the
+  critic in and you have to decide what to do about being fully booked.
+
+Cards are drawn without replacement per business, with the memory window scaled
+to the drawable pool. `tools/repeats.ts` measures the result: a levelling
+business goes 44–49 minutes before seeing any card twice, against 4.7 minutes
+before this system existed.
+
 **Luck** is a first-class stat. Roll tokens accrue on a timer, and every roll
 lands in a rarity band — Common through Mythic — with the odds visibly reweighted
 by your Luck. Legendary and Mythic pulls take over the screen. Luck also improves

@@ -42,6 +42,19 @@ export interface Business {
   /** Lifetime gross revenue, for stats screens. */
   lifetimeRevenue: number;
   foundedAt: number;
+  /**
+   * Situational memory written by card outcomes and read by later cards, as
+   * tag -> seconds remaining. This is what lets a business that was wrecked
+   * last week read differently from one that has never had a problem.
+   */
+  tags: Record<string, number>;
+  /**
+   * Card ids drawn recently at this business, newest last. The draw excludes
+   * these, making the deck a shuffled bag rather than an independent roll —
+   * with independent draws a repeat arrives after roughly sqrt(pi*n/2) cards
+   * no matter how large the deck is.
+   */
+  recentCards: string[];
 }
 
 /** A tradeable market instrument (equity or crypto). */
@@ -156,6 +169,12 @@ export interface EventChoice {
 
 export interface EventOutcome {
   text: string;
+  /** Writes a memory tag onto the business for `seconds` (default 600). */
+  addTag?: { tag: string; seconds?: number };
+  /** Clears a memory tag. */
+  removeTag?: string;
+  /** Queues a specific follow-up card, giving a decision a second act. */
+  chain?: { cardId: string; delay: number };
   /** Flat cash delta. */
   cash?: number;
   /** Cash delta as a multiple of the business's per-second net. */
@@ -179,6 +198,15 @@ export interface EventCardDef {
   body: string;
   /** Minimum business level before this card can appear. */
   minLevel?: number;
+  /** Only drawable when the business carries this memory tag. */
+  requiresTag?: string;
+  /** Never drawn while the business carries this tag. */
+  excludesTag?: string;
+  /**
+   * Follow-up cards are queued explicitly by a chain and never drawn at
+   * random, so a second act cannot arrive before its first.
+   */
+  chainOnly?: boolean;
   choices: EventChoice[];
 }
 
@@ -190,6 +218,13 @@ export interface PendingEvent {
   createdAt: number;
   /** Seconds before the card expires on its own. */
   expiresIn: number;
+}
+
+/** A follow-up card queued by an earlier decision. */
+export interface ScheduledEvent {
+  defId: string;
+  businessId: string | null;
+  fireIn: number;
 }
 
 export interface NewsItem {
@@ -258,6 +293,8 @@ export interface GameState {
   hustleCooldown: number;
 
   pendingEvents: PendingEvent[];
+  /** Chained follow-ups waiting to fire, as seconds remaining. */
+  scheduledEvents: ScheduledEvent[];
   news: NewsItem[];
   log: LogEntry[];
 

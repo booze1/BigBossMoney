@@ -39,6 +39,8 @@ export function createBusiness(category: Business['category'], existingNames: st
     eventCooldown: range(20, 45),
     lifetimeRevenue: 0,
     foundedAt: Date.now(),
+    tags: {},
+    recentCards: [],
   };
 }
 
@@ -89,6 +91,7 @@ export function createInitialState(carry?: CarryOver): GameState {
     hustleCooldown: 0,
 
     pendingEvents: [],
+    scheduledEvents: [],
     news: [],
     log: [
       {

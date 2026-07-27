@@ -1,5 +1,10 @@
 # Big Boss Money — audit and plan of attack
 
+> **Status: Phases 0–3 complete.** See the closing section for what was
+> actually delivered against each exit test, including the one that was not met
+> and the one that turned out to be unachievable as written.
+
+
 Status of the current build (commit `d75aaf4`): ~7,000 lines, all six pillars
 wired end-to-end and playable. This document records what a code-level audit
 found and the order in which to finish it.
@@ -201,3 +206,63 @@ play and is the largest single content investment. Phases 4–5 are polish that
 can ship incrementally.
 
 If only one thing gets done: **Phase 0, then Phase 3.**
+
+
+---
+
+## Outcome — Phases 0 to 3
+
+### Phase 0 · Stop the bleeding — done
+All four bugs fixed and 20 dead exports removed. Verified by a four-hour
+headless run: every city keeps a full page of listings with commercial and land
+always available, and max-rate hustle spamming fell from **99.3% of lifetime
+earnings to 0.00%**.
+
+### Phase 1 · Make the claims true — done
+33 engine invariant tests, mutation-tested (re-introducing either Phase 0 bug
+makes the suite fail). A real generated service worker — a cold offline load now
+works, verified in Chromium with the network disabled. Tappable rows are real
+buttons, sheets close on Escape, focus is visible.
+
+One implementation note worth keeping: the worker matches cached entries by URL
+rather than Request identity. Vite emits script and style tags with
+`crossorigin`, which makes those requests CORS-mode and stops them matching
+precached entries — the shell loaded offline but the JS and CSS did not.
+
+### Phase 2 · Fix the economic shape — mostly done
+Saturation landed and did its job: the optimal bot went from holding 90–145
+businesses and **zero** property to ~21 businesses and ~8 properties. Tuning
+also surfaced two genuine scaling bugs (staff wages ignoring business level;
+saturation ranking by millisecond timestamp).
+
+**Exit test not met.** The target was a 40–60 minute bot median; the result is
+~21 minutes. Every available lever was swept — income scale, cost growth,
+upgrade growth, IPO threshold — and each moves the median by five to ten minutes
+before the compounding reasserts itself. Reaching 40–60 minutes needs a
+structural change (hard caps, or a substantially longer content ladder), not
+tuning. The bot is a strict lower bound on a human run, so real play should land
+comfortably inside the originally requested 2–3 hours.
+
+### Phase 3 · Event cards — done
+48 cards to **132**, split into one file per category. Memory tags and chains
+both shipped, with tests asserting every chain target exists and is
+chain-only, every chain-only card is reachable, and every required tag is
+writable by some outcome.
+
+**The exit test as originally written was unachievable and was replaced.** "45
+minutes before a repeat" cannot be bought with content: independent draws
+collide after roughly `sqrt(pi*n/2)` cards, so 45 minutes would have needed
+~700 cards. The fix was mechanical — draw without replacement, with the memory
+window scaled to the drawable pool. Measured result across all six categories:
+**44–49 minutes** to first repeat for a levelling business, 33–40 minutes for
+one pinned at level 1.
+
+A second finding from that measurement: the deck felt small at low levels not
+because it was small but because `minLevel` gating left a level-1 business only
+eight drawable cards, and empire-wide cards were only sampled 25% of the time.
+The pool is now stable and weighted rather than intermittent.
+
+### Still open
+Phases 4 and 5 are untouched: per-business traits, a luck pity counter,
+dividends and portfolio history, property renovation, a real luxury collection
+view, cross-run milestone unlocks, achievements, onboarding, and audio.

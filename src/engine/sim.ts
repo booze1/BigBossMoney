@@ -1,4 +1,4 @@
-import type { GameState, PendingEvent, PropertyKind } from './types';
+import type { Business, EventCardDef, GameState, PropertyKind } from './types';
 import { TUNING } from './content/tuning';
 import { MANAGER_BY_TIER } from './content/businesses';
 import { EVENTS_BY_CATEGORY, EVENT_BY_ID } from './content/events';
@@ -267,6 +267,26 @@ function stepListings(s: GameState, dt: number, rt: SimRuntime): void {
 // ------------------------------------------------------------------ events
 
 function stepEvents(s: GameState, dt: number): void {
+  // Memory tags fade, so a business recovers from a bad run rather than
+  // carrying it forever.
+  for (const b of s.businesses) {
+    for (const tag of Object.keys(b.tags)) {
+      const remaining = b.tags[tag] - dt;
+      if (remaining <= 0) delete b.tags[tag];
+      else b.tags[tag] = remaining;
+    }
+  }
+
+  // Chained follow-ups jump the normal cooldown — they are the second act of
+  // a decision the player already made.
+  for (const scheduled of s.scheduledEvents) scheduled.fireIn -= dt;
+  const due = s.scheduledEvents.filter((e) => e.fireIn <= 0);
+  s.scheduledEvents = s.scheduledEvents.filter((e) => e.fireIn > 0);
+  for (const item of due) {
+    if (item.businessId && !s.businesses.some((b) => b.id === item.businessId)) continue;
+    queueCard(s, item.defId, item.businessId);
+  }
+
   // Expire stale cards so the queue never becomes a chore.
   for (const e of s.pendingEvents) e.expiresIn -= dt;
   const expired = s.pendingEvents.filter((e) => e.expiresIn <= 0);
@@ -281,7 +301,7 @@ function stepEvents(s: GameState, dt: number): void {
     if (b.eventCooldown > 0) continue;
     b.eventCooldown = range(TUNING.eventCooldownMin, TUNING.eventCooldownMax);
 
-    const card = pickCardFor(s, b.category, b.level);
+    const card = pickCardFor(s, b);
     if (!card) continue;
 
     const manager = MANAGER_BY_TIER[b.manager];
@@ -290,42 +310,78 @@ function stepEvents(s: GameState, dt: number): void {
       continue;
     }
 
-    // A full queue drops the *oldest* card, not the new one. Silently
-    // discarding fresh cards made large empires stop generating decisions.
-    if (s.pendingEvents.length >= TUNING.maxPendingEvents) {
-      const dropped = s.pendingEvents.shift();
-      if (dropped) {
-        const droppedDef = EVENT_BY_ID[dropped.defId];
-        if (droppedDef) {
-          addLog(s, `"${droppedDef.title}" went stale while other decisions piled up.`, 'neutral');
-        }
-      }
-    }
-
-    const pending: PendingEvent = {
-      uid: uid('ev'),
-      defId: card.id,
-      businessId: b.id,
-      createdAt: Date.now(),
-      expiresIn: TUNING.eventExpirySeconds,
-    };
-    s.pendingEvents.push(pending);
+    queueCard(s, card.id, b.id);
   }
 }
 
-function pickCardFor(s: GameState, category: string, level: number) {
-  const pool = [
-    ...(EVENTS_BY_CATEGORY[category] ?? []),
-    // Empire-wide cards are rarer than category cards but always available.
-    ...(chance(0.25) ? EVENTS_BY_CATEGORY['any'] ?? [] : []),
-  ].filter((c) => (c.minLevel ?? 1) <= level);
+/** Pushes a card into the decision queue, evicting the oldest if full. */
+function queueCard(s: GameState, defId: string, businessId: string | null): void {
+  // A full queue drops the *oldest* card, not the new one. Silently
+  // discarding fresh cards made large empires stop generating decisions.
+  if (s.pendingEvents.length >= TUNING.maxPendingEvents) {
+    const dropped = s.pendingEvents.shift();
+    if (dropped) {
+      const droppedDef = EVENT_BY_ID[dropped.defId];
+      if (droppedDef) {
+        addLog(s, `"${droppedDef.title}" went stale while other decisions piled up.`, 'neutral');
+      }
+    }
+  }
 
+  s.pendingEvents.push({
+    uid: uid('ev'),
+    defId,
+    businessId,
+    createdAt: Date.now(),
+    expiresIn: TUNING.eventExpirySeconds,
+  });
+}
+
+function isDrawable(c: EventCardDef, b: Business): boolean {
+  return (
+    !c.chainOnly &&
+    (c.minLevel ?? 1) <= b.level &&
+    (!c.requiresTag || b.tags[c.requiresTag] !== undefined) &&
+    (!c.excludesTag || b.tags[c.excludesTag] === undefined)
+  );
+}
+
+function pickCardFor(s: GameState, b: Business) {
+  // Category and empire-wide cards are both always in the pool. Sampling the
+  // empire deck only some of the time made the pool size fluctuate, which
+  // collapsed the memory window and let repeats through early.
+  const categoryPool = (EVENTS_BY_CATEGORY[b.category] ?? []).filter((c) => isDrawable(c, b));
+  const generalPool = (EVENTS_BY_CATEGORY['any'] ?? []).filter((c) => isDrawable(c, b));
+  const pool = [...categoryPool, ...generalPool];
   if (pool.length === 0) return null;
 
-  // Avoid immediately repeating a card already sitting in the queue.
+  // Draw without replacement: exclude anything queued, plus the cards this
+  // business has seen most recently. The memory window scales with the pool,
+  // so adding cards directly extends the time before a repeat rather than
+  // being washed out by random collisions.
   const queued = new Set(s.pendingEvents.map((e) => e.defId));
-  const fresh = pool.filter((c) => !queued.has(c.id));
-  return pick(fresh.length > 0 ? fresh : pool);
+  const memory = Math.floor(pool.length * TUNING.deckMemoryRatio);
+  const recent = new Set(b.recentCards.slice(-memory));
+
+  const eligible = (list: EventCardDef[]) =>
+    list.filter((c) => !queued.has(c.id) && !recent.has(c.id));
+
+  let freshCategory = eligible(categoryPool);
+  let freshGeneral = eligible(generalPool);
+  if (freshCategory.length === 0 && freshGeneral.length === 0) {
+    // Memory window exhausted — fall back to anything not currently queued.
+    freshCategory = categoryPool.filter((c) => !queued.has(c.id));
+    freshGeneral = generalPool.filter((c) => !queued.has(c.id));
+  }
+
+  // Category cards are the point of the deck; empire cards are seasoning.
+  const preferCategory = freshCategory.length > 0 && (freshGeneral.length === 0 || chance(0.72));
+  const source = preferCategory ? freshCategory : freshGeneral.length > 0 ? freshGeneral : pool;
+  const card = pick(source);
+
+  b.recentCards.push(card.id);
+  if (b.recentCards.length > 120) b.recentCards.shift();
+  return card;
 }
 
 /** A managed business picks the safest option and takes a reduced payoff. */

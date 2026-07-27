@@ -78,6 +78,12 @@ export const TUNING = {
   eventCooldownMax: 110,
   eventExpirySeconds: 150,
   maxPendingEvents: 6,
+  /**
+   * How much of a business's drawable deck to hold back as "recently seen".
+   * At 0.75 a business gets through three quarters of everything available to
+   * it before anything can repeat.
+   */
+  deckMemoryRatio: 0.85,
   /** Minimum unowned listings kept available per unlocked city. */
   minListingsPerCity: 4,
   /**

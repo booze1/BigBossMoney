@@ -174,5 +174,21 @@ function applyOutcome(
     lines.push(`+${n} roll${n === 1 ? '' : 's'}`);
   }
 
+  if (outcome.addTag && business) {
+    business.tags[outcome.addTag.tag] = outcome.addTag.seconds ?? 600;
+  }
+
+  if (outcome.removeTag && business) {
+    delete business.tags[outcome.removeTag];
+  }
+
+  if (outcome.chain) {
+    s.scheduledEvents.push({
+      defId: outcome.chain.cardId,
+      businessId: ctx.businessId,
+      fireIn: outcome.chain.delay,
+    });
+  }
+
   return { lines, cashDelta };
 }
