@@ -16,32 +16,10 @@ gated on the test suite.
 
 ```bash
 npm install
-npm run dev            # http://localhost:5173
-npm run test           # engine invariant suite
-npm run build          # static bundle in dist/, including a generated service worker
-npm run build:branch   # the above, then copy it to build/ — commit this, see below
+npm run dev      # http://localhost:5173
+npm run test     # engine invariant suite
+npm run build    # static bundle in dist/, including a generated service worker
 ```
-
-## Why build/ is committed
-
-Pages for this repo is set to **Deploy from a branch**, so the public site is
-the branch's own file tree, not the artifact the workflow uploads. The tree's
-`index.html` is Vite's dev entry — it loads `/src/main.tsx`, which 404s when
-served as a static file — so serving it raw produced a correct `<title>` over an
-empty `#root`: a blank page.
-
-`build/` is a committed copy of `dist/`, and the root `index.html` redirects into
-it if its dev entry fails to load. That handler cannot fire in dev or on the
-artifact, because Vite rewrites the tag at build time. The deploy workflow fails
-the build if `build/` does not match a fresh compile, since a stale copy here is
-a stale live site.
-
-**This is a workaround, not the intended setup.** In *Settings → Pages → Source*,
-switching to **GitHub Actions** makes the workflow artifact the live site
-directly; `build/`, the redirect and the staleness check can all be deleted
-afterwards. The workflow tries to make that switch itself on every run, but the
-Actions token is refused (`403 Resource not accessible by integration`) — the
-endpoint needs repository admin, which only a human has.
 
 The build in `dist/` is fully static — drop it on any host. It installs as a PWA
 and a cold load with no network works: `scripts/build-sw.mjs` precaches the

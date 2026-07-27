@@ -267,32 +267,29 @@ Phases 4 and 5 are untouched: per-business traits, a luck pity counter,
 dividends and portfolio history, property renovation, a real luxury collection
 view, cross-run milestone unlocks, achievements, onboarding, and audio.
 
-## Deployment — why the live site is served from build/
+## Deployment — the blank page
 
-The public URL was serving a blank page. Pages for this repo is set to **Deploy
-from a branch**, so `https://booze1.github.io/BigBossMoney/` is the branch's own
-file tree, not the artifact `deploy-pages.yml` uploads. That tree's
-`index.html` is Vite's dev entry, which loads `/src/main.tsx` — a source file
-that 404s when served statically. The result was a correct `<title>` over an
-empty `#root`, which is indistinguishable from a blank page.
+The public URL served a blank page for the first day it was live. Pages had been
+enabled in **Deploy from a branch** mode, so `https://booze1.github.io/BigBossMoney/`
+was the branch's own file tree rather than the artifact `deploy-pages.yml`
+uploads. That tree's `index.html` is Vite's dev entry, which loads
+`/src/main.tsx` — a source file that 404s when served statically. The result was
+a correct `<title>` over an empty `#root`, indistinguishable from a blank page,
+while four green deploys uploaded a working bundle nothing was serving.
 
-This was reproduced locally by mounting the repo root at `/BigBossMoney/` on a
-static server: `#root content length: 0`, plus `404 /src/main.tsx`. Serving
-`dist/` at the same path rendered normally, which ruled out both the subpath and
-a stale service worker.
+It was reproduced by mounting the repo root at `/BigBossMoney/` on a static
+server: `#root content length: 0`, plus `404 /src/main.tsx`. Serving `dist/` at
+the same path rendered normally, which ruled out both the subpath and a stale
+service worker.
 
-Two things now stand between that and a blank page:
+The source is now set to **GitHub Actions**, so the uploaded artifact is the
+site and the mismatch cannot recur. The interim workaround — a committed copy of
+the build, a redirect out of the dev entry, `.nojekyll`, and a staleness check
+in CI — has been removed. Attempting the switch from the workflow itself does
+not work: `PUT /repos/.../pages` returns `403 Resource not accessible by
+integration`, as the endpoint requires repository admin.
 
-- `build/`, a committed copy of `dist/`. The root `index.html` redirects into it
-  if its dev entry fails to load. Vite rewrites that script tag at build time,
-  so the handler exists only in the file a static host serves verbatim — it
-  cannot fire in dev or on the artifact. The workflow fails if `build/` does not
-  match a fresh compile.
-- A splash inside `#root` that names the problem after ten seconds if nothing
-  loads at all, so this failure mode can never again be silent.
-
-**The proper fix is one setting.** *Settings → Pages → Source → GitHub Actions*
-makes the uploaded artifact the live site, after which `build/`, the redirect
-and the staleness check should all be deleted. The workflow attempts the switch
-itself on every run; the Actions token is refused with `403 Resource not
-accessible by integration`, because the endpoint requires repository admin.
+One piece was worth keeping. `index.html` now carries an inline-styled splash
+inside `#root` that React replaces on mount, and which after ten seconds says
+the game files did not load. It is a first paint in the normal case, and in the
+abnormal one it means this class of failure can never again be silent.

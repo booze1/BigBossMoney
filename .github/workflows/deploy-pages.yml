@@ -42,46 +42,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      # While Pages serves the branch, the live site is the committed build/
-      # rather than the artifact below, so a stale build/ is a stale site.
-      # Fail loudly rather than let that happen quietly.
-      - name: Check the committed branch build is current
-        run: |
-          if ! diff -r --exclude=README.md dist build > /tmp/staleness.txt 2>&1; then
-            head -40 /tmp/staleness.txt
-            echo "::error::build/ does not match a fresh build of this commit." \
-              "Run 'npm run build:branch' and commit the result."
-            exit 1
-          fi
-          echo "build/ matches dist/"
-
-      # Pages was first enabled in "deploy from a branch" mode, which publishes
-      # the repository root. The root index.html is Vite's dev entry — it points
-      # at /src/main.tsx, which 404s when served statically, so the branch build
-      # serves a correct <title> over an empty #root: a blank page.
-      #
-      # configure-pages only sets the build type when it creates the site; on an
-      # already-enabled site it leaves the existing mode alone. Force it here so
-      # the artifact uploaded below is what actually gets served. Non-fatal: if
-      # the call is rejected the deploy should still publish.
-      - name: Point Pages at this workflow's artifact
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          code=$(curl -sS -o /tmp/pages.out -w '%{http_code}' -X PUT \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pages" \
-            -d '{"build_type":"workflow"}') || true
-          echo "PUT /pages build_type=workflow -> HTTP $code"
-          cat /tmp/pages.out || true
-          if [ "$code" != "204" ]; then
-            echo "::warning::Could not set the Pages build type to 'workflow'." \
-              "Set Settings -> Pages -> Source to 'GitHub Actions' by hand," \
-              "or the branch build will keep serving the repository root."
-          fi
-
       - uses: actions/configure-pages@v5
         with:
           enablement: true

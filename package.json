@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "build:branch": "npm run build && node scripts/stage-branch-build.mjs"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "react": "^18.3.1",

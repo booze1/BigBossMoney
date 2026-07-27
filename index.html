@@ -33,18 +33,6 @@
         if (msg) msg.textContent = 'Could not load the game files. Reload, or check back shortly.';
       }, 10000);
     </script>
-    <!--
-      Vite rewrites this line at build time, so the onerror only ever fires on a
-      host serving this file verbatim — which is what the Pages branch build
-      does. /src/main.tsx cannot run as a static file, so hand off to build/,
-      the committed copy of the real bundle. See README, "Why build/ is
-      committed". Harmless everywhere else: in dev the module loads and the
-      handler never runs.
-    -->
-    <script
-      type="module"
-      src="/src/main.tsx"
-      onerror="location.replace('./build/')"
-    ></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
