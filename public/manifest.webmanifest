@@ -1,0 +1,10 @@
+{
+  "name": "Big Boss Money",
+  "short_name": "BBM",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0B0E14",
+  "theme_color": "#0B0E14",
+  "orientation": "portrait",
+  "icons": []
+}
