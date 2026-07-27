@@ -13,6 +13,8 @@ export type CategoryId =
   | 'bank'
   | 'devco';
 
+export type BoostKind = 'income' | 'market' | 'flex';
+
 export type Rarity =
   | 'common'
   | 'uncommon'
@@ -20,14 +22,6 @@ export type Rarity =
   | 'epic'
   | 'legendary'
   | 'mythic';
-
-export type TierId =
-  | 'hustler'
-  | 'entrepreneur'
-  | 'tycoon'
-  | 'mogul'
-  | 'bigboss'
-  | 'billionaire';
 
 export type ManagerTier = 'none' | 'junior' | 'senior' | 'exec' | 'legend';
 
@@ -140,8 +134,8 @@ export interface Boost {
   id: string;
   label: string;
   rarity: Rarity;
-  kind: 'income' | 'luck' | 'market' | 'flex' | 'offline';
-  /** Multiplier for `income`/`market`, flat additive for `luck`/`flex`. */
+  kind: BoostKind;
+  /** Multiplier for `income`/`market`, flat additive for `flex`. */
   power: number;
   /** Seconds remaining; Infinity for permanent boosts. */
   remaining: number;
@@ -169,7 +163,7 @@ export interface EventOutcome {
   /** Additive change to business morale multiplier. */
   morale?: number;
   /** Grants a timed boost. */
-  boost?: { label: string; kind: Boost['kind']; power: number; duration: number; scope: 'business' | 'empire' };
+  boost?: { label: string; kind: BoostKind; power: number; duration: number; scope: 'business' | 'empire' };
   /** Additive staff change. */
   staff?: number;
   /** Additive luck change (permanent). */
@@ -235,7 +229,6 @@ export interface Stats {
 
 export interface Settings {
   reducedMotion: boolean;
-  compactNumbers: boolean;
   autoResolveManaged: boolean;
 }
 
@@ -261,6 +254,8 @@ export interface GameState {
   rollTokens: number;
   /** Seconds until the next free roll token is granted. */
   rollTimer: number;
+  /** Seconds until the manual hustle action can be used again. */
+  hustleCooldown: number;
 
   pendingEvents: PendingEvent[];
   news: NewsItem[];

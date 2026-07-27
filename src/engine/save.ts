@@ -15,15 +15,6 @@ export function save(state: GameState): void {
     // running in memory; there is nothing useful to tell the player here.
   }
 }
-
-export function hasSave(): boolean {
-  try {
-    return localStorage.getItem(KEY) !== null;
-  } catch {
-    return false;
-  }
-}
-
 export function clearSave(): void {
   try {
     localStorage.removeItem(KEY);

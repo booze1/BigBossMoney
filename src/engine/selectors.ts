@@ -1,7 +1,7 @@
 import type { Business, City, GameState, Property, Rarity } from './types';
 import { TUNING, TIERS, RARITY_META, RARITY_ORDER } from './content/tuning';
 import { CATEGORY_BY_ID, MANAGER_BY_TIER, CategoryDef } from './content/businesses';
-import { CITY_SEED_BY_ID, DEVELOPMENT_BY_TYPE } from './content/realestate';
+import { DEVELOPMENT_BY_TYPE } from './content/realestate';
 import { LUXURY_BY_ID } from './content/luxury';
 
 /**
@@ -28,13 +28,13 @@ export function flexScore(s: GameState): number {
   return baseFlex(s) * multiplier;
 }
 
-/** Total Luck: base stat + flex contribution + any active luck boosts. */
+/**
+ * Total Luck: the base stat plus the contribution from Flex. Luck rewards are
+ * applied straight to `s.luck` rather than as timed boosts, so there is no
+ * third term here.
+ */
 export function totalLuck(s: GameState): number {
-  const fromFlex = flexScore(s) * TUNING.flexLuckPerPoint;
-  const fromBoosts = s.boosts
-    .filter((b) => b.kind === 'luck')
-    .reduce((sum, b) => sum + b.power, 0);
-  return Math.max(0, s.luck + fromFlex + fromBoosts);
+  return Math.max(0, s.luck + flexScore(s) * TUNING.flexLuckPerPoint);
 }
 
 /** Rarity weights after the Luck stat has skewed them. */
@@ -178,23 +178,7 @@ export function occupyingBusiness(s: GameState, propertyId: string): Business | 
   return s.businesses.find((b) => b.propertyId === propertyId);
 }
 
-export function unlockedCities(s: GameState): City[] {
-  const nw = netWorth(s);
-  return s.cities.filter((c) => nw >= c.unlockAt || s.properties.some((p) => p.cityId === c.id && p.owned));
-}
-
-export function cityPriceLevel(cityId: string): number {
-  return CITY_SEED_BY_ID[cityId]?.priceLevel ?? 1;
-}
-
 // ------------------------------------------------------------------ markets
-
-export function holdingValue(s: GameState, assetId: string): number {
-  const h = s.holdings.find((x) => x.assetId === assetId);
-  const a = s.assets.find((x) => x.id === assetId);
-  if (!h || !a) return 0;
-  return h.units * a.price;
-}
 
 export function portfolioValue(s: GameState): number {
   return s.holdings.reduce((sum, h) => {
@@ -307,6 +291,15 @@ export function managerHireCost(s: GameState, b: Business, tier: keyof typeof MA
   return businessValue(b) * def.hireCostRatio * costMultiplier(s);
 }
 
+/**
+ * Manual hustle payout. The net-worth term is capped: uncapped it grows without
+ * bound and rewards autoclicking over actually running the empire.
+ */
+export function hustlePayout(s: GameState): number {
+  const bonus = Math.min(TUNING.hustleMaxBonus, Math.max(0, netWorth(s)) * TUNING.hustleNetWorthFactor);
+  return TUNING.hustleBase + bonus;
+}
+
 export function rollCost(s: GameState): number {
   return TUNING.rollBaseCost + Math.max(0, netWorth(s)) * TUNING.rollNetWorthFactor;
 }
@@ -347,11 +340,6 @@ export function projectedLegacyPoints(s: GameState): number {
 
 export function canIPO(s: GameState): boolean {
   return netWorth(s) >= TUNING.ipoMinNetWorth;
-}
-
-export function legacyUpgradeCost(s: GameState, id: string, defBase: number, growth: number): number {
-  const level = legacyLevel(s, id);
-  return Math.ceil(defBase * Math.pow(growth, level));
 }
 
 // ------------------------------------------------------------------ unlock

@@ -1,6 +1,6 @@
 import type { Business, GameState, Stats } from './types';
 import { TUNING } from './content/tuning';
-import { CATEGORIES, CATEGORY_BY_ID } from './content/businesses';
+import { CATEGORY_BY_ID } from './content/businesses';
 import { createAssets } from './content/markets';
 import { createCities, generateCityListings } from './content/realestate';
 import { range, uid, pick } from './rng';
@@ -86,6 +86,7 @@ export function createInitialState(carry?: CarryOver): GameState {
     luck: luckLevel * 20,
     rollTokens: 3,
     rollTimer: TUNING.freeRollSeconds,
+    hustleCooldown: 0,
 
     pendingEvents: [],
     news: [],
@@ -106,7 +107,6 @@ export function createInitialState(carry?: CarryOver): GameState {
     stats: carry?.stats ?? emptyStats(),
     settings: {
       reducedMotion: false,
-      compactNumbers: true,
       autoResolveManaged: true,
     },
 
@@ -115,9 +115,4 @@ export function createInitialState(carry?: CarryOver): GameState {
     offlineReport: null,
     seenIntro: carry !== undefined,
   };
-}
-
-/** Categories the player can currently see in the Build screen. */
-export function visibleCategories(netWorthValue: number, owned: Set<string>) {
-  return CATEGORIES.filter((c) => netWorthValue >= c.unlockAt || owned.has(c.id));
 }

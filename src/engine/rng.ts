@@ -4,14 +4,8 @@
  * seeded PRNG later for deterministic tests.
  */
 
-export const rand = () => Math.random();
-
 export function range(min: number, max: number): number {
   return min + Math.random() * (max - min);
-}
-
-export function intRange(min: number, max: number): number {
-  return Math.floor(range(min, max + 1));
 }
 
 export function pick<T>(arr: readonly T[]): T {
@@ -35,13 +29,4 @@ let idCounter = 0;
 export function uid(prefix = 'id'): string {
   idCounter += 1;
   return `${prefix}_${Date.now().toString(36)}_${idCounter.toString(36)}`;
-}
-
-export function shuffle<T>(arr: T[]): T[] {
-  const out = arr.slice();
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
 }

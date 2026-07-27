@@ -148,9 +148,3 @@ export function useGame(): GameContextValue {
   if (!ctx) throw new Error('useGame must be used inside a GameProvider');
   return ctx;
 }
-
-/** Shorthand for components that only need the state and a dispatcher. */
-export function useGameState(): [GameState, (a: Action) => ActionResult] {
-  const { state, dispatch } = useGame();
-  return [state, dispatch];
-}

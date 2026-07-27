@@ -8,7 +8,6 @@ import {
   nextTier,
   tierProgress,
   totalIncome,
-  totalLuck,
 } from './engine/selectors';
 import { duration, money, rate } from './engine/format';
 import { AnimatedMoney, Modal } from './ui/components/common';
@@ -255,6 +254,3 @@ function Intro() {
     </Modal>
   );
 }
-
-/** Exposed for the header luck readout in future iterations. */
-export const headerLuck = totalLuck;

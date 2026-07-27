@@ -120,8 +120,3 @@ export function applyRoll(s: GameState): RollResult {
 
   return { rarity, reward, effects };
 }
-
-/** Flex boosts granted by rolls count toward the Flex score. */
-export function rollFlexBonus(s: GameState): number {
-  return s.boosts.filter((b) => b.kind === 'flex').reduce((sum, b) => sum + b.power, 0);
-}

@@ -14,13 +14,14 @@ import {
   managerHireCost,
   marketBoostMultiplier,
   maxStaff,
+  hustlePayout,
   netWorth,
   projectedLegacyPoints,
   propertyValue,
   rollCost,
   upgradeCost,
 } from './selectors';
-import { addCash, addLog, grantRolls, setFlash } from './mutations';
+import { addCash, addLog, setFlash } from './mutations';
 import { applyRoll, type RollResult } from './rolls';
 import { resolveEventChoice } from './events';
 import { createBusiness, createInitialState } from './state';
@@ -71,9 +72,12 @@ export function apply(s: GameState, action: Action): ActionResult {
   switch (action.type) {
     // ------------------------------------------------------------- hustle
     case 'hustle': {
-      const amount = TUNING.hustleBase + Math.max(0, netWorth(s)) * TUNING.hustleNetWorthFactor;
-      addCash(s, amount);
-      return { message: `${money(amount, { sign: true })}`, tone: 'good' };
+      // Gated in the engine rather than the UI so the cooldown cannot be
+      // dispatched around by an autoclicker or a console call.
+      if (s.hustleCooldown > 0) return {};
+      s.hustleCooldown = TUNING.hustleCooldown;
+      addCash(s, hustlePayout(s));
+      return { message: `${money(hustlePayout(s), { sign: true })}`, tone: 'good' };
     }
 
     // ---------------------------------------------------------- businesses
@@ -424,9 +428,4 @@ export function apply(s: GameState, action: Action): ActionResult {
   }
 }
 
-/** Convenience used by the roll screen to show what a roll would cost. */
-export function nextRollPrice(s: GameState): { tokens: number; cash: number } {
-  return { tokens: s.rollTokens, cash: rollCost(s) };
-}
 
-export { grantRolls };

@@ -140,12 +140,6 @@ export function LuckScreen() {
             <span className="dim">Flex ({flexScore(state).toFixed(0)} × {TUNING.flexLuckPerPoint})</span>
             <span className="num">{(flexScore(state) * TUNING.flexLuckPerPoint).toFixed(0)}</span>
           </div>
-          <div className="row">
-            <span className="dim">Active boosts</span>
-            <span className="num">
-              {state.boosts.filter((b) => b.kind === 'luck').reduce((s, b) => s + b.power, 0).toFixed(0)}
-            </span>
-          </div>
           <div className="divider" />
           <div className="row">
             <span style={{ fontWeight: 600 }}>Total Luck</span>

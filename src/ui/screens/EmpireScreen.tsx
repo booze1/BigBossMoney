@@ -10,10 +10,10 @@ import {
   businessValue,
   flexScore,
   hireStaffCost,
+  hustlePayout,
   isCategoryUnlocked,
   managerHireCost,
   maxStaff,
-  netWorth,
   upgradeCost,
 } from '../../engine/selectors';
 import { clock, money, rate, pct } from '../../engine/format';
@@ -23,11 +23,11 @@ export function EmpireScreen() {
   const { state, dispatch } = useGame();
   const [openId, setOpenId] = useState<string | null>(null);
 
-  const nw = netWorth(state);
   const income = businessIncome(state);
   const open = state.businesses.find((b) => b.id === openId) ?? null;
 
-  const hustleAmount = TUNING.hustleBase + Math.max(0, nw) * TUNING.hustleNetWorthFactor;
+  const hustleAmount = hustlePayout(state);
+  const hustleReady = state.hustleCooldown <= 0;
   // The hustle button matters only while the empire is small; once businesses
   // out-earn it several times over it collapses into a quiet secondary action.
   const hustleIsMeaningful = hustleAmount > income * 1.5;
@@ -39,6 +39,7 @@ export function EmpireScreen() {
       <button
         className={`btn ${hustleIsMeaningful ? 'btn-primary btn-hero' : 'btn-ghost btn-block btn-sm'}`}
         onClick={() => dispatch({ type: 'hustle' })}
+        disabled={!hustleReady}
         style={{ marginBottom: 12 }}
       >
         {hustleIsMeaningful ? `Work the floor — ${money(hustleAmount)}` : `Work the floor (${money(hustleAmount)})`}

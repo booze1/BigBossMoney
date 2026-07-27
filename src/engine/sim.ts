@@ -1,16 +1,15 @@
-import type { GameState, PendingEvent, Property } from './types';
+import type { GameState, PendingEvent, PropertyKind } from './types';
 import { TUNING } from './content/tuning';
-import { CATEGORY_BY_ID, MANAGER_BY_TIER } from './content/businesses';
+import { MANAGER_BY_TIER } from './content/businesses';
 import { EVENTS_BY_CATEGORY, EVENT_BY_ID } from './content/events';
 import { NEWS_TEMPLATES } from './content/markets';
-import { DEVELOPMENT_BY_TYPE, PROPERTY_HEADLINES } from './content/realestate';
+import { PROPERTY_HEADLINES, generateListing } from './content/realestate';
 import { LUXURY_BY_ID } from './content/luxury';
 import {
   businessFinancials,
   freeRollInterval,
   netWorth,
   propertyRentPerSecond,
-  totalDebt,
 } from './selectors';
 import { addCash, addLog, addNews, coverShortfall, grantRolls } from './mutations';
 import { chance, gaussian, pick, range, uid } from './rng';
@@ -124,6 +123,7 @@ function stepBoosts(s: GameState, dt: number): void {
 }
 
 function stepRolls(s: GameState, dt: number): void {
+  if (s.hustleCooldown > 0) s.hustleCooldown = Math.max(0, s.hustleCooldown - dt);
   if (s.rollTokens >= TUNING.maxRollTokens) return;
   s.rollTimer -= dt;
   while (s.rollTimer <= 0) {
@@ -239,9 +239,29 @@ function stepListings(s: GameState, dt: number, rt: SimRuntime): void {
   rt.listingTimer -= dt;
   if (rt.listingTimer > 0) return;
   rt.listingTimer = TUNING.listingRefreshSeconds;
+
   // Unowned listings churn so the market always looks alive. Owned property is
   // never touched.
   s.properties = s.properties.filter((p) => p.owned || chance(0.6));
+
+  // ...and then the market restocks. Without this the churn is one-directional
+  // and every city eventually drains to an empty listings page.
+  const nw = netWorth(s);
+  for (const city of s.cities) {
+    const unlocked = nw >= city.unlockAt || s.properties.some((p) => p.cityId === city.id && p.owned);
+    if (!unlocked) continue;
+    const open = s.properties.filter((p) => p.cityId === city.id && !p.owned);
+    // Commercial units house businesses and land is the only developable kind,
+    // so both must stay purchasable. Restock those first, then fill the rest.
+    const needed: PropertyKind[] = [];
+    if (!open.some((p) => p.kind === 'commercial')) needed.push('commercial');
+    if (!open.some((p) => p.kind === 'land')) needed.push('land');
+
+    const missing = Math.max(needed.length, TUNING.listingsPerCity - open.length);
+    for (let i = 0; i < missing; i++) {
+      s.properties.push(generateListing(city.id, needed[i]));
+    }
+  }
 }
 
 // ------------------------------------------------------------------ events
@@ -270,7 +290,18 @@ function stepEvents(s: GameState, dt: number): void {
       continue;
     }
 
-    if (s.pendingEvents.length >= TUNING.maxPendingEvents) continue;
+    // A full queue drops the *oldest* card, not the new one. Silently
+    // discarding fresh cards made large empires stop generating decisions.
+    if (s.pendingEvents.length >= TUNING.maxPendingEvents) {
+      const dropped = s.pendingEvents.shift();
+      if (dropped) {
+        const droppedDef = EVENT_BY_ID[dropped.defId];
+        if (droppedDef) {
+          addLog(s, `"${droppedDef.title}" went stale while other decisions piled up.`, 'neutral');
+        }
+      }
+    }
+
     const pending: PendingEvent = {
       uid: uid('ev'),
       defId: card.id,
@@ -360,11 +391,3 @@ export function simulateOffline(s: GameState, elapsedSeconds: number, capSeconds
   return { seconds, earned: s.cash - before, capped };
 }
 
-/** Convenience for the debt screen: how long until the auto line is cleared. */
-export function autoLineBalance(s: GameState): number {
-  return s.debt.find((l) => l.id === 'auto')?.principal ?? totalDebt(s) * 0;
-}
-
-export const CATEGORY_LOOKUP = CATEGORY_BY_ID;
-export const DEV_LOOKUP = DEVELOPMENT_BY_TYPE;
-export type { Property };

@@ -9,8 +9,6 @@ export const TUNING = {
   /** Starting bankroll. The player also gets one free retail store. */
   startingCash: 1_500,
 
-  /** Simulation step. The loop accumulates real time and steps at this rate. */
-  tickSeconds: 0.2,
   /** Never simulate more than this in one frame, to survive tab-throttling. */
   maxCatchUpSeconds: 5,
 
@@ -20,10 +18,15 @@ export const TUNING = {
   /** Minimum gap before an offline report is worth showing. */
   offlineMinSeconds: 60,
 
-  /** Manual "Hustle" button for the opening minutes. */
+  /**
+   * Manual "Hustle" button for the opening minutes. The net-worth term is
+   * capped: without a ceiling it scales forever and an autoclicker out-earns
+   * the entire empire.
+   */
   hustleBase: 45,
   hustleNetWorthFactor: 0.0004,
-  hustleCooldown: 0.35,
+  hustleMaxBonus: 500,
+  hustleCooldown: 1.5,
 
   /** Business economics. */
   /**
@@ -55,6 +58,8 @@ export const TUNING = {
   eventCooldownMax: 110,
   eventExpirySeconds: 150,
   maxPendingEvents: 6,
+  /** Minimum unowned listings kept available per unlocked city. */
+  minListingsPerCity: 4,
   /**
    * Scales every `cashSeconds` outcome. Cards are authored on a 0-600 scale
    * for readability; at this factor a business's card stream contributes

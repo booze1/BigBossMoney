@@ -55,31 +55,6 @@ export function Meter({ value, color = 'var(--brand)' }: { value: number; color?
     </div>
   );
 }
-
-export function Segmented<T extends string>({
-  options,
-  value,
-  onChange,
-}: {
-  options: { id: T; label: string }[];
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="segmented">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          className={`segment ${value === o.id ? 'active' : ''}`}
-          onClick={() => onChange(o.id)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function Modal({
   open,
   onClose,

@@ -22,17 +22,6 @@ export function money(n: number, opts: { sign?: boolean; decimals?: number } = {
   const decimals = scaled < 10 ? 2 : scaled < 100 ? 1 : 0;
   return prefix + scaled.toFixed(decimals) + UNITS[tier];
 }
-
-/** Money with full precision, for tooltips and confirmations. */
-export function moneyExact(n: number): string {
-  const neg = n < 0;
-  const abs = Math.abs(n);
-  return (
-    (neg ? '-$' : '$') +
-    abs.toLocaleString('en-US', { maximumFractionDigits: 0 })
-  );
-}
-
 /** A per-second rate, e.g. "$1.20K/s". */
 export function rate(n: number): string {
   return `${money(n, { sign: n > 0 })}/s`;

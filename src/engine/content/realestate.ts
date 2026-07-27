@@ -1,5 +1,5 @@
 import type { City, Property, PropertyKind } from '../types';
-import { intRange, pick, range, uid } from '../rng';
+import { pick, range, uid } from '../rng';
 
 /**
  * Real estate spans three uses that feed each other:
@@ -191,7 +191,3 @@ export const PROPERTY_HEADLINES = [
   { city: '{city}', text: 'Infrastructure announcement lifts {city} values', tone: 'good' as const },
   { city: '{city}', text: 'Vacancy rates climb across {city}', tone: 'bad' as const },
 ];
-
-export function randomDevelopmentTime(base: number): number {
-  return Math.round(base * range(0.9, 1.1)) + intRange(0, 5);
-}
