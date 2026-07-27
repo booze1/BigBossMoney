@@ -42,6 +42,19 @@ jobs:
       - name: Build
         run: npm run build
 
+      # While Pages serves the branch, the live site is the committed build/
+      # rather than the artifact below, so a stale build/ is a stale site.
+      # Fail loudly rather than let that happen quietly.
+      - name: Check the committed branch build is current
+        run: |
+          if ! diff -r --exclude=README.md dist build > /tmp/staleness.txt 2>&1; then
+            head -40 /tmp/staleness.txt
+            echo "::error::build/ does not match a fresh build of this commit." \
+              "Run 'npm run build:branch' and commit the result."
+            exit 1
+          fi
+          echo "build/ matches dist/"
+
       # Pages was first enabled in "deploy from a branch" mode, which publishes
       # the repository root. The root index.html is Vite's dev entry — it points
       # at /src/main.tsx, which 404s when served statically, so the branch build
