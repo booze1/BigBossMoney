@@ -129,8 +129,14 @@ function applyOutcome(
   }
 
   if (cashDelta !== 0) {
-    addCash(s, cashDelta);
-    lines.push(`${money(cashDelta, { sign: true })}`);
+    // A single card must never take more than the player actually has.
+    if (cashDelta < 0) {
+      cashDelta = -Math.min(-cashDelta, Math.max(0, s.cash) * TUNING.maxEventLossRatio);
+    }
+    if (cashDelta !== 0) {
+      addCash(s, cashDelta);
+      lines.push(`${money(cashDelta, { sign: true })}`);
+    }
   }
 
   if (outcome.morale && business) {

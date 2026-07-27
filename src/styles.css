@@ -537,6 +537,7 @@ button.listrow {
 .modal-backdrop {
   position: fixed;
   inset: 0;
+  overscroll-behavior: contain;
   background: rgba(5, 7, 12, 0.72);
   backdrop-filter: blur(6px);
   z-index: 100;
@@ -551,6 +552,11 @@ button.listrow {
   max-width: 560px;
   max-height: 88dvh;
   overflow-y: auto;
+  /* Momentum scrolling on iOS, and keep the scroll inside the sheet so a
+     swipe never chains out to whatever is behind the backdrop. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   background: var(--bg-elev);
   border: 1px solid var(--border-strong);
   border-bottom: none;
@@ -579,6 +585,25 @@ button.listrow {
   color: var(--text-dim);
   margin-bottom: 16px;
   line-height: 1.5;
+}
+
+/* The Boss panel embeds a whole screen, which is its own scroller. The shell
+   must not also scroll, or the two nest and neither behaves on touch. */
+.modal-panel {
+  padding: 0;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px 6px;
+  flex: none;
 }
 
 @keyframes fade { from { opacity: 0; } }

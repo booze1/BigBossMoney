@@ -101,10 +101,12 @@ function stepDebt(s: GameState, dt: number): void {
   for (const loan of s.debt) {
     loan.principal += loan.principal * loan.rate * dt;
   }
-  // Surplus cash automatically services the punitive emergency line first.
+  // Spare cash services the emergency line, but only a share of it. Taking
+  // everything left the balance sitting at zero for as long as the line was
+  // open, which is indistinguishable from the game confiscating your money.
   const auto = s.debt.find((l) => l.id === 'auto');
   if (auto && s.cash > 0) {
-    const payment = Math.min(auto.principal, s.cash);
+    const payment = Math.min(auto.principal, s.cash * TUNING.autoRepayRatio);
     auto.principal -= payment;
     s.cash -= payment;
   }

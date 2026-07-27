@@ -10,7 +10,7 @@ import {
   totalIncome,
 } from './engine/selectors';
 import { duration, money, rate } from './engine/format';
-import { AnimatedMoney, Modal } from './ui/components/common';
+import { AnimatedMoney, Modal, PanelSheet } from './ui/components/common';
 import { EventCardOverlay } from './ui/components/EventCard';
 import { EmpireScreen } from './ui/screens/EmpireScreen';
 import { MarketsScreen } from './ui/screens/MarketsScreen';
@@ -92,23 +92,9 @@ export default function App() {
         />
       )}
 
-      {bossOpen && (
-        <div className="modal-backdrop" onClick={() => setBossOpen(false)}>
-          <div
-            className="modal"
-            style={{ padding: 0, maxHeight: '92dvh', display: 'flex', flexDirection: 'column' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="row" style={{ padding: '14px 16px 6px' }}>
-              <span className="modal-title" style={{ margin: 0 }}>The Boss</span>
-              <button className="icon-btn" onClick={() => setBossOpen(false)} aria-label="Close">
-                ✕
-              </button>
-            </div>
-            <BossScreen />
-          </div>
-        </div>
-      )}
+      <PanelSheet open={bossOpen} onClose={() => setBossOpen(false)} title="The Boss">
+        <BossScreen />
+      </PanelSheet>
 
       <OfflineReport />
       <Intro />

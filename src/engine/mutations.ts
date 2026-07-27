@@ -89,11 +89,16 @@ export function coverShortfall(s: GameState): void {
     s.debt.push({
       id: 'auto',
       principal: shortfall,
-      // Emergency credit is priced punitively; the player can refinance on the
-      // Debt screen by taking a cheaper loan and repaying this.
-      rate: (TUNING.loanBaseAnnualRate * 1.8) / TUNING.secondsPerGameYear,
+      // Dearer than a normal loan, but not ruinous — the financial year is
+      // only 150s, so interest compounds fast enough already.
+      rate: (TUNING.loanBaseAnnualRate * 1.35) / TUNING.secondsPerGameYear,
       takenAt: Date.now(),
     });
-    addLog(s, 'You went into the red. Emergency credit line opened at a brutal rate.', 'bad');
+    addLog(
+      s,
+      'Your cash ran out. An emergency credit line covered the shortfall — ' +
+        'repay it on the Debt screen before the interest builds.',
+      'bad',
+    );
   }
 }

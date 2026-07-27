@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { money } from '../../engine/format';
 
 /** Small shared primitives used across every screen. */
@@ -78,6 +79,51 @@ export function ListRow({
   );
 }
 
+/**
+ * A full-height sheet whose body scrolls internally — used for the Boss panel,
+ * which embeds a whole screen. Portalled for the same reason as `Modal`.
+ */
+export function PanelSheet({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return createPortal(
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-panel-head">
+          <span className="modal-title" style={{ margin: 0 }}>{title}</span>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function Modal({
   open,
   onClose,
@@ -103,7 +149,14 @@ export function Modal({
   }, [open, dismissible, onClose]);
 
   if (!open) return null;
-  return (
+
+  // Rendered into document.body rather than in place. Screens are themselves
+  // scroll containers (`.screen { overflow-y: auto }`) inside `.app
+  // { overflow: hidden }`, and a nested scroller in that chain does not
+  // respond to touch scrolling — wheel events hit-test visually and worked,
+  // but a finger swipe did nothing, so sheet content below the fold was
+  // unreachable on a phone.
+  return createPortal(
     <div className="modal-backdrop" onClick={dismissible ? onClose : undefined}>
       <div
         className="modal"
@@ -116,7 +169,8 @@ export function Modal({
         {title && <h2 className="modal-title">{title}</h2>}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -1,6 +1,6 @@
 import type { Business, CategoryId, City, GameState, Property, Rarity } from './types';
 import { TUNING, TIERS, RARITY_META, RARITY_ORDER } from './content/tuning';
-import { CATEGORY_BY_ID, MANAGER_BY_TIER, CategoryDef } from './content/businesses';
+import { CATEGORIES, CATEGORY_BY_ID, MANAGER_BY_TIER, CategoryDef } from './content/businesses';
 import { DEVELOPMENT_BY_TYPE } from './content/realestate';
 import { LUXURY_BY_ID } from './content/luxury';
 
@@ -288,20 +288,46 @@ export function tierProgress(s: GameState): number {
 
 // ------------------------------------------------------------------- costs
 
-/** Global purchase discount from the Buying Power legacy upgrade. */
+/**
+ * Price of any reinvestment: the global pacing scale, less the Buying Power
+ * legacy discount.
+ */
 export function costMultiplier(s: GameState): number {
-  return Math.max(0.4, 1 - legacyLevel(s, 'cost') * 0.04);
+  const discount = Math.max(0.4, 1 - legacyLevel(s, 'cost') * 0.04);
+  return reinvestCostScale(s) * discount;
+}
+
+/**
+ * How much dearer reinvestment has become as the empire has grown. Starts at
+ * ~1 so the opening is untouched, and climbs steadily — this is what stops the
+ * late game compounding away in a couple of minutes.
+ */
+export function reinvestCostScale(s: GameState): number {
+  const nw = Math.max(0, netWorth(s));
+  const ramp = 1 + Math.pow(nw / TUNING.costRampReference, TUNING.costRampExponent);
+  // Capped: uncapped this reaches ~230x by the IPO threshold, which stops
+  // expansion outright rather than merely slowing it.
+  return Math.min(TUNING.costRampMax, ramp);
+}
+
+/** How much dearer this tier is to buy into than the first one. */
+export function tierCostRamp(def: CategoryDef): number {
+  const tier = CATEGORIES.findIndex((c) => c.id === def.id);
+  return Math.pow(TUNING.tierCostRamp, Math.max(0, tier));
 }
 
 export function businessCost(s: GameState, def: CategoryDef): number {
   const owned = s.businesses.filter((b) => b.category === def.id).length;
-  return def.baseCost * Math.pow(TUNING.costGrowthPerOwned, owned) * costMultiplier(s);
+  return (
+    def.baseCost * tierCostRamp(def) * Math.pow(TUNING.costGrowthPerOwned, owned) * costMultiplier(s)
+  );
 }
 
 export function upgradeCost(s: GameState, b: Business): number {
   const def = CATEGORY_BY_ID[b.category];
   return (
     def.baseCost *
+    tierCostRamp(def) *
     TUNING.upgradeCostFactor *
     Math.pow(TUNING.upgradeCostGrowth, b.level - 1) *
     costMultiplier(s)

@@ -30,6 +30,23 @@ export const TUNING = {
 
   /** Business economics. */
   /**
+   * Master pacing brake. Reinvestment prices are multiplied by
+   * `1 + (netWorth / costRampReference) ^ costRampExponent`.
+   *
+   * A flat multiplier controls run length reliably but ruins the opening — at
+   * the scale needed to slow the endgame the second shop costs half an hour of
+   * income. Ramping with net worth instead leaves the first minutes untouched
+   * and bites hardest exactly where growth used to run away.
+   *
+   * Applied to purchases, upgrades, hires and managers — never to a business's
+   * balance-sheet value, or the higher price would inflate net worth and
+   * cancel itself out.
+   */
+  costRampReference: 50_000,
+  costRampExponent: 0.6,
+  /** Ceiling on the ramp, so late-game expansion stays expensive but possible. */
+  costRampMax: 30,
+  /**
    * Market saturation. The n-th business in a category earns
    * `saturationDecay^n` of full revenue, floored at `saturationFloor`.
    *
@@ -48,9 +65,25 @@ export const TUNING = {
    */
   baseIncomeScale: 1.0,
   costGrowthPerOwned: 1.3,
+  /**
+   * Capital ramp across the category ladder. The n-th tier costs
+   * `tierCostRamp^n` more to buy and upgrade, while earning the same — so a
+   * corner store pays for itself in ~200s and a development arm takes far
+   * longer.
+   *
+   * Without this every tier had an identical payback period, so the empire
+   * compounded at a constant rate from the first shop to the last tower and
+   * the late game arrived in a couple of minutes. This flattens the curve
+   * where it was steepest and leaves the opening untouched.
+   *
+   * Applied to purchase and upgrade prices only, never to a business's
+   * balance-sheet value — otherwise the higher cost would inflate net worth
+   * and undo itself.
+   */
+  tierCostRamp: 1.25,
   upgradeCostFactor: 0.6,
   upgradeCostGrowth: 1.5,
-  revenuePerLevel: 1.28,
+  revenuePerLevel: 1.24,
   staffPerLevel: 2,
   staffRevenueBonus: 0.06,
   /**
@@ -93,6 +126,14 @@ export const TUNING = {
    * eclipsing the businesses themselves.
    */
   cashSecondsScale: 0.2,
+
+  /**
+   * The most of your cash a single event card may take. Uncapped, a bad
+   * outcome could exceed the whole balance (measured at 205%), which zeroed
+   * the player's cash and opened an emergency credit line out of nowhere —
+   * it read as the game randomly resetting you. A card should hurt, not wipe.
+   */
+  maxEventLossRatio: 0.6,
 
   /** Luck's pull on a card's good-outcome odds, capped. */
   luckOddsPerPoint: 0.0011,
@@ -141,6 +182,11 @@ export const TUNING = {
 
   /** Debt. */
   loanBaseAnnualRate: 0.14,
+  /**
+   * Share of spare cash the emergency credit line claims each tick. It used to
+   * take everything, which pinned the balance at zero until the line cleared.
+   */
+  autoRepayRatio: 0.4,
   /** Max borrow as a multiple of net worth. */
   loanLimitRatio: 0.45,
   /** Net worth below this (negative) forces the bankruptcy prompt. */

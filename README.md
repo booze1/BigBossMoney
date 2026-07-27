@@ -121,13 +121,23 @@ matter most:
 
 Pacing is measured by `tools/pacing.ts`, which drives the engine with a bot
 that reinvests into whichever purchase has the shortest payback — businesses,
-upgrades, staff, property, development, and buying premises to house a business.
-It resolves every card instantly and never idles, so it is a strict lower bound
-on a human run.
+upgrades, staff, property, development, and buying premises to house a
+business. It resolves every card instantly and never idles, so it is a strict
+lower bound on a human run. Median to the $250M IPO is ~35 minutes.
 
-That bot reaches the $250M IPO threshold in a median of ~21 minutes, holding
-around 21 businesses and 8 properties. A human navigating screens and deciding
-what to buy should expect several times that.
+**The master pacing dial is the reinvestment cost ramp.** Every purchase price
+is multiplied by `1 + (netWorth / costRampReference) ^ costRampExponent`,
+capped at `costRampMax`. This is the only lever that reliably controls run
+length, because it lengthens the payback of *every* option at once — sweeping
+income, upgrade cost, tier cost or level growth individually each moved the
+median by only a few minutes, since the player simply reroutes into whichever
+path is still cheap.
+
+It ramps rather than being flat for a reason: most of a run's wall-clock time
+is spent in the early doublings, so a flat multiplier big enough to slow the
+endgame also makes the second shop cost half an hour of income. Ramping with
+net worth leaves the opening almost untouched (the second store goes from
+$6.5K to $8.4K) and bites hardest where growth used to run away.
 
 **Market saturation** is what keeps this shaped. The n-th business in a category
 earns `saturationDecay^n` of full output, floored so nothing is ever worthless.

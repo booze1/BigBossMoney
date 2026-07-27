@@ -18,6 +18,7 @@ import {
   netWorth,
   offlineCapSeconds,
   rarityOdds,
+  reinvestCostScale,
   saturationMultiplier,
   totalIncome,
   totalLuck,
@@ -482,5 +483,54 @@ describe('market saturation', () => {
     const high = paybackAt(10);
     // Allow drift, but a level-10 hire must not be an order of magnitude better.
     expect(high).toBeGreaterThan(low * 0.5);
+  });
+});
+
+// ------------------------------------------------------- player-reported
+
+describe('reported issues', () => {
+  it('no single event card can take more than the player has', () => {
+    // Reported as "you randomly get set to zero". A bad outcome could exceed
+    // the whole balance (measured at 205%), which zeroed cash and opened an
+    // emergency credit line out of nowhere.
+    for (const card of EVENT_CARDS) {
+      for (let i = 0; i < card.choices.length; i++) {
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const s = createInitialState();
+          s.businesses[0].level = 12;
+          s.cash = 5_000;
+          resolveEventChoice(s, s.businesses[0].id, card.id, i);
+          expect(s.cash, `${card.id}[${i}] drove cash below zero`).toBeGreaterThanOrEqual(0);
+          expect(s.debt.some((l) => l.id === 'auto'), `${card.id}[${i}] forced an emergency loan`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('the emergency credit line never confiscates all spare cash', () => {
+    const s = createInitialState();
+    s.cash = 0;
+    s.debt.push({ id: 'auto', principal: 50_000, rate: 0.0001, takenAt: Date.now() });
+    s.cash = 10_000;
+    const rt = createRuntime();
+    step(s, 0.5, rt);
+    // Some of it services the debt; the player keeps the rest and can act.
+    expect(s.cash).toBeGreaterThan(0);
+    expect(s.cash).toBeLessThan(10_000);
+  });
+
+  it('reinvestment gets dearer as the empire grows, but never free or infinite', () => {
+    const small = createInitialState();
+    const large = createInitialState();
+    large.cash = 500_000_000;
+
+    const a = reinvestCostScale(small);
+    const b = reinvestCostScale(large);
+    expect(a).toBeGreaterThanOrEqual(1);
+    expect(b).toBeGreaterThan(a);
+    expect(b).toBeLessThanOrEqual(TUNING.costRampMax);
+    // The opening must stay affordable — this is the whole reason the brake
+    // ramps instead of being a flat multiplier.
+    expect(a).toBeLessThan(1.6);
   });
 });
