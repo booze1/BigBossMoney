@@ -381,3 +381,48 @@ The world that reacts, and people you can talk to — phases two and three of th
 AI brief. Plus the older list: a luck pity counter, dividends and portfolio
 history, property renovation, a luxury collection view, achievements,
 onboarding, audio.
+
+## Phase 5d — a press that writes about you
+
+Second of the three AI features. The static templates say "{name} misses
+guidance". This says "Corner Store magnate moves into nightclubs weeks after
+third inspection", because it is handed a picture of what the player actually
+owns: businesses by name and level, headcount, debt, the cities they hold
+property in, and the last six lines of their own log.
+
+Three constraints shaped it, and each one is visible in the code:
+
+- **It costs money**, so it is batched. One call returns a dozen stories that
+  print over the following quarter of an hour, gated by a queue low-water mark
+  *and* a six-minute floor — the floor applies even when the queue is empty and
+  the empire has changed, so a fast-moving run cannot become a burst of calls on
+  somebody's free tier.
+- **It must work offline**, so the batch lives in the save. It keeps printing
+  with no signal, and running dry falls back to the authored templates, which is
+  also exactly what happens with no key.
+- **The engine owns the numbers.** An item names a tone and at most one ticker.
+  `PRESS_EFFECTS` is *derived from NEWS_TEMPLATES at module load* rather than
+  written by hand, so a generated headline lands in the range a written one
+  occupies and the two cannot drift. There is a test asserting a generated
+  effect can never exceed the largest authored one.
+
+The network deliberately lives in the store, not the engine. The engine runs
+headless in the tuning tools and the test suite; a fetch inside the tick would
+make both impossible. It only ever consumes a queue that is already in the save.
+
+The Gemini call itself was extracted into `ai/client.ts` — key handling, the
+failure taxonomy and the refusal to trust a reply now exist once and are shared
+by both features.
+
+Verified in a browser with the endpoint intercepted: one call, carrying a
+snapshot naming Corner Store, its staff and the health inspection from the log;
+twelve items validated down to six and written to the save; one printed to the
+tape and the queue drained by one. With no key, zero calls and the game
+unchanged. Pacing 33.3m over fifteen trials against 34.4m — a nine-trial sample
+first read 30.2m with an eight-minute outlier, which is the same heavy tail the
+trait tool ran into, not a regression. Suite 103 to 118.
+
+### Still open
+People you can talk to — the third of the three. Plus the older list: a luck
+pity counter, dividends and portfolio history, property renovation, a luxury
+collection view, achievements, onboarding, audio.

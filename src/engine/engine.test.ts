@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from './state';
-import { createRuntime, step, simulateOffline } from './sim';
+import { createRuntime, fireMarketNews as fireNews, step, simulateOffline } from './sim';
 import { apply } from './actions';
 import { applyRoll } from './rolls';
 import { resolveEventChoice } from './events';
@@ -10,6 +10,8 @@ import { CATEGORIES } from './content/businesses';
 import { CURABLE_TRAITS, TRAIT_BY_ID, traitsFor } from './content/traits';
 import { generateOffers } from './premises';
 import { DESIGN_LIMITS, DesignError, cardById, validateDesign } from './custom';
+import { NEWS_TEMPLATES, PRESS_EFFECTS } from './content/markets';
+import { buildSnapshot, pressSignature, shouldRefreshPress, validatePress } from '../ai/world';
 import { migrate } from './save';
 import { createBusiness } from './state';
 import { hire } from './mutations';
@@ -1241,5 +1243,185 @@ describe('custom business designs', () => {
     expect(restored.designs).toHaveLength(1);
     expect(restored.designs[0].cards).toHaveLength(design.cards.length);
     expect(cardById(restored, design.cards[0].id)).toBeTruthy();
+  });
+});
+
+describe('the empire press', () => {
+  const press = (over: Partial<import('./types').PressItem> = {}) => ({
+    id: 'p1',
+    headline: 'Corner Store magnate moves into nightclubs',
+    detail: 'Weeks after a third health inspection, no less.',
+    tone: 'bad' as const,
+    assetId: null,
+    ...over,
+  });
+
+  it('prints queued press instead of a template, and consumes it', () => {
+    const s = createInitialState();
+    s.press.queue = [press(), press({ id: 'p2', headline: 'Second story' })];
+
+    fireNews(s);
+    expect(s.news[0].headline).toBe('Corner Store magnate moves into nightclubs');
+    expect(s.press.queue).toHaveLength(1);
+
+    fireNews(s);
+    expect(s.news[0].headline).toBe('Second story');
+    expect(s.press.queue).toHaveLength(0);
+
+    // Dry queue falls back to the authored templates rather than going silent.
+    fireNews(s);
+    expect(s.news).toHaveLength(3);
+  });
+
+  it('moves the named ticker and nothing else', () => {
+    const s = createInitialState();
+    const target = s.assets[0];
+    const bystander = s.assets[1];
+    const before = { target: target.price, bystander: bystander.price };
+
+    s.press.queue = [press({ tone: 'bad', assetId: target.id })];
+    fireNews(s);
+
+    expect(target.price).toBeLessThan(before.target);
+    expect(bystander.price).toBe(before.bystander);
+  });
+
+  it('moves the whole board when no ticker is named', () => {
+    const s = createInitialState();
+    const before = s.assets.map((a) => a.price);
+    s.press.queue = [press({ tone: 'good', assetId: null })];
+    fireNews(s);
+    expect(s.assets.every((a, i) => a.price > before[i])).toBe(true);
+  });
+
+  it('cannot hit harder than the authored templates it was derived from', () => {
+    // The whole point of deriving PRESS_EFFECTS from NEWS_TEMPLATES: a
+    // generated headline lands inside the range a written one occupies.
+    for (const kind of ['stock', 'crypto'] as const) {
+      const authored = NEWS_TEMPLATES.filter((t) => t.kind === kind);
+      const worst = Math.max(...authored.map((t) => Math.abs(t.jump)));
+      for (const tone of ['good', 'bad', 'neutral'] as const) {
+        expect(Math.abs(PRESS_EFFECTS[kind][tone].jump)).toBeLessThanOrEqual(worst);
+      }
+    }
+  });
+
+  it('keeps printing offline and does not try to fetch', () => {
+    const s = createInitialState();
+    s.press.queue = Array.from({ length: 4 }, (_, i) => press({ id: `p${i}` }));
+    // simulateOffline runs the market step, which is where press prints. No
+    // network exists in the engine, so a drained queue is the only outcome.
+    simulateOffline(s, 6 * 3600, 12 * 3600);
+    expect(s.press.queue.length).toBeLessThan(4);
+    expect(s.news.length).toBeGreaterThan(0);
+  });
+
+  it('survives a save round-trip, and an old save gains an empty queue', () => {
+    const s = createInitialState();
+    s.press.queue = [press()];
+    s.press.signature = '4|2|1|0|0';
+    const restored = migrate(JSON.parse(JSON.stringify(s)));
+    expect(restored.press.queue).toHaveLength(1);
+    expect(restored.press.signature).toBe('4|2|1|0|0');
+
+    const legacy = JSON.parse(JSON.stringify(createInitialState()));
+    delete legacy.press;
+    expect(migrate(legacy).press).toEqual({ queue: [], signature: '', lastFetchAt: 0 });
+  });
+});
+
+describe('press validation', () => {
+  const ids = new Set(['bigtech', 'rugcoin']);
+  const item = (over: Record<string, unknown> = {}) => ({
+    headline: 'A headline',
+    detail: 'Some detail about it.',
+    tone: 'bad',
+    ...over,
+  });
+
+  it('accepts well-formed items and defaults a missing tone to neutral', () => {
+    const out = validatePress({ items: [item(), item({ tone: 'nonsense' })] }, ids);
+    expect(out).toHaveLength(2);
+    expect(out[0].tone).toBe('bad');
+    expect(out[1].tone).toBe('neutral');
+  });
+
+  it('drops an item naming a ticker the game does not have', () => {
+    // Reassigning it to the market would move the wrong price under a headline
+    // about a specific company. One story fewer is the better failure.
+    const out = validatePress({ items: [item({ assetId: 'tesla' }), item({ assetId: 'rugcoin' })] }, ids);
+    expect(out).toHaveLength(1);
+    expect(out[0].assetId).toBe('rugcoin');
+  });
+
+  it("treats 'none' as a market-wide story", () => {
+    expect(validatePress({ items: [item({ assetId: 'none' })] }, ids)[0].assetId).toBeNull();
+  });
+
+  it('returns nothing rather than throwing on rubbish', () => {
+    for (const rubbish of [null, undefined, 'a string', 42, {}, { items: 'no' }, { items: [null, 7] }]) {
+      expect(validatePress(rubbish, ids), JSON.stringify(rubbish)).toEqual([]);
+    }
+  });
+
+  it('drops items with nothing to print', () => {
+    const out = validatePress(
+      { items: [item({ headline: '   ' }), item({ detail: '' }), item()] },
+      ids,
+    );
+    expect(out).toHaveLength(1);
+  });
+
+  it('truncates rather than letting a headline run away', () => {
+    const out = validatePress({ items: [item({ headline: 'x'.repeat(500), detail: 'y'.repeat(900) })] }, ids);
+    expect(out[0].headline.length).toBeLessThanOrEqual(110);
+    expect(out[0].detail.length).toBeLessThanOrEqual(240);
+  });
+});
+
+describe('press scheduling', () => {
+  it('describes the empire in terms the press could actually use', () => {
+    const s = createInitialState();
+    s.cash = 1e7;
+    hire(s.businesses[0]);
+    apply(s, { type: 'borrow', amount: 50_000 });
+    const snap = buildSnapshot(s);
+
+    expect(snap.businesses[0]).toContain('Corner Store');
+    expect(snap.businesses[0]).toContain('Retail Store');
+    expect(snap.staff).toBe(1);
+    expect(snap.debt).not.toBe('none');
+    expect(snap.tier.length).toBeGreaterThan(0);
+  });
+
+  it('only changes its fingerprint when the empire changes shape', () => {
+    const s = createInitialState();
+    const before = pressSignature(s);
+    // A second of income moves net worth but not the shape of anything.
+    playFor(s, 2);
+    expect(pressSignature(s)).toBe(before);
+
+    s.cash = 1e9;
+    apply(s, { type: 'buyBusiness', category: 'restaurant' });
+    expect(pressSignature(s)).not.toBe(before);
+  });
+
+  it('will not spend a call while the queue is healthy or the floor is fresh', () => {
+    const s = createInitialState();
+    const now = Date.now();
+
+    s.press.queue = Array.from({ length: 8 }, (_, i) => ({
+      id: `p${i}`, headline: 'h', detail: 'd', tone: 'neutral' as const, assetId: null,
+    }));
+    s.press.lastFetchAt = 0;
+    expect(shouldRefreshPress(s, now)).toBe(false);
+
+    s.press.queue = [];
+    expect(shouldRefreshPress(s, now)).toBe(true);
+
+    // Just fetched, and empty: still no, because the floor is what protects a
+    // free-tier key from a fast-changing empire.
+    s.press.lastFetchAt = now - 1000;
+    expect(shouldRefreshPress(s, now)).toBe(false);
   });
 });

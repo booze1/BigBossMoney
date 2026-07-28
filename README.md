@@ -97,6 +97,20 @@ every event card you play.
 Stocks drift; crypto does not. News events shock individual tickers or the whole
 board, and RugCoin behaves exactly as advertised.
 
+**The press** writes about you, if you have a key. It is given a picture of what
+you actually own — your businesses by name and level, your headcount, your debt,
+the cities you hold property in, and the last few things that happened to you —
+and files copy accordingly: *"Corner Store magnate moves into nightclubs weeks
+after third inspection"*. Stories are batched a dozen at a time and printed over
+the following quarter of an hour, so it costs about one call per fifteen minutes
+and keeps printing with no signal. Without a key the authored templates run
+exactly as before.
+
+It still owns no numbers. An item names a tone and at most one ticker; the market
+move comes from `PRESS_EFFECTS`, which is *derived from the authored templates*
+rather than written by hand — so a generated headline lands in the same range a
+written one occupies and the two can never drift apart.
+
 **Real estate** works three ways at once: buy for rental yield, buy raw land and
 develop it over real time for a large multiple, or buy a commercial unit and move
 one of your businesses into it — which kills that business's rent and widens its
@@ -138,8 +152,10 @@ src/
     custom.ts        player-designed businesses, and the validator they enter by
     content/         tuning, businesses, traits, staff, event decks, markets,
                      cities, luxury
-  ai/
-    gemini.ts        bring-your-own-key client; entirely optional
+  ai/                all optional; the engine never calls out
+    client.ts        the one place this app talks to Gemini
+    gemini.ts        turning a sentence into a business
+    world.ts         the press that writes about your empire
   ui/                screens and components
   store.tsx          mutable state + rAF loop + React bridge
 ```

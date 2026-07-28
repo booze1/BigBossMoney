@@ -87,3 +87,33 @@ export const NEWS_TEMPLATES: NewsTemplate[] = [
   { headline: 'Geopolitical tension escalates', detail: 'Risk-off across the board. Investors move to the sidelines.', tone: 'bad', jump: -0.04, shock: -0.00008 },
   { headline: 'Consumer confidence hits multi-year high', detail: 'Spending data is strong across every category.', tone: 'good', jump: 0.022, shock: 0.00004 },
 ];
+
+/**
+ * The market move a generated headline is allowed to cause.
+ *
+ * Derived from the authored templates above rather than written by hand, so
+ * the two can never drift apart: a generated story lands in exactly the range
+ * a written one occupies for the same kind of asset and the same tone. This is
+ * the whole economic surface the AI press has — it chooses what happened and
+ * to whom, and the numbers come from here.
+ */
+export interface PressEffect {
+  jump: number;
+  shock: number;
+}
+
+function averageOf(kind: NewsTemplate['kind'], tone: NewsTemplate['tone']): PressEffect {
+  const matching = NEWS_TEMPLATES.filter((t) => t.kind === kind && t.tone === tone);
+  if (matching.length === 0) return { jump: 0, shock: 0 };
+  return {
+    jump: matching.reduce((sum, t) => sum + t.jump, 0) / matching.length,
+    shock: matching.reduce((sum, t) => sum + t.shock, 0) / matching.length,
+  };
+}
+
+export const PRESS_EFFECTS: Record<'stock' | 'crypto' | 'macro', Record<'good' | 'bad' | 'neutral', PressEffect>> = {
+  stock: { good: averageOf('stock', 'good'), bad: averageOf('stock', 'bad'), neutral: { jump: 0, shock: 0 } },
+  crypto: { good: averageOf('crypto', 'good'), bad: averageOf('crypto', 'bad'), neutral: { jump: 0, shock: 0 } },
+  // Macro templates carry no `kind`, which is what marks them board-wide.
+  macro: { good: averageOf(undefined, 'good'), bad: averageOf(undefined, 'bad'), neutral: { jump: 0, shock: 0 } },
+};

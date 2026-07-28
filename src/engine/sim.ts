@@ -4,12 +4,13 @@ import type {
   GameState,
   OfflineNote,
   OfflineResult,
+  PressItem,
   PropertyKind,
 } from './types';
 import { TUNING } from './content/tuning';
 import { MANAGER_BY_TIER } from './content/businesses';
 import { EVENTS_BY_CATEGORY } from './content/events';
-import { NEWS_TEMPLATES } from './content/markets';
+import { NEWS_TEMPLATES, PRESS_EFFECTS } from './content/markets';
 import { DEVELOPMENT_BY_TYPE, PROPERTY_HEADLINES, generateListing } from './content/realestate';
 import { LUXURY_BY_ID } from './content/luxury';
 import {
@@ -187,7 +188,18 @@ function stepMarkets(s: GameState, dt: number, rt: SimRuntime): void {
   }
 }
 
-function fireMarketNews(s: GameState): void {
+/** Exported for the test suite, which drives one news beat at a time. */
+export function fireMarketNews(s: GameState): void {
+  // Press written about this empire takes precedence over the stock templates.
+  // It is consumed one item per news beat and never regenerated here — the
+  // engine has no network and must not acquire one, so refilling the queue is
+  // the store's job and this simply falls back when it runs dry.
+  const item = s.press.queue.shift();
+  if (item) {
+    printPress(s, item);
+    return;
+  }
+
   const template = pick(NEWS_TEMPLATES);
 
   if (!template.kind) {
@@ -211,6 +223,29 @@ function fireMarketNews(s: GameState): void {
   const headline = template.headline.replace('{name}', asset.name).replace('{ticker}', asset.ticker);
   const detail = template.detail.replace('{name}', asset.name).replace('{ticker}', asset.ticker);
   addNews(s, headline, detail, template.tone);
+}
+
+/**
+ * Prints one piece of empire press and applies the market move its tone and
+ * target imply. The item itself carries no numbers.
+ */
+function printPress(s: GameState, item: PressItem): void {
+  const asset = item.assetId ? s.assets.find((a) => a.id === item.assetId) : undefined;
+  const kind = asset ? asset.kind : 'macro';
+  const effect = PRESS_EFFECTS[kind][item.tone];
+
+  if (asset) {
+    asset.price = Math.max(0.0001, asset.price * (1 + effect.jump * range(0.75, 1.3)));
+    asset.shock += effect.shock;
+  } else if (effect.jump !== 0) {
+    for (const a of s.assets) {
+      const scale = a.kind === 'crypto' ? 2.2 : 1;
+      a.price = Math.max(0.0001, a.price * (1 + effect.jump * scale * range(0.6, 1.4)));
+      a.shock += effect.shock * scale;
+    }
+  }
+
+  addNews(s, item.headline, item.detail, item.tone);
 }
 
 function stepCities(s: GameState, dt: number, rt: SimRuntime): void {

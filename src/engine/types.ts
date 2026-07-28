@@ -310,6 +310,36 @@ export interface ScheduledEvent {
   fireIn: number;
 }
 
+/**
+ * A news item written about this particular empire, waiting to be printed.
+ *
+ * It carries no economic numbers. `tone` and `target` are the whole of its
+ * mechanical content, and the engine turns those into a market move using the
+ * same bands the authored templates occupy — so a generated headline can never
+ * hit harder than a written one.
+ */
+export interface PressItem {
+  id: string;
+  headline: string;
+  detail: string;
+  tone: NewsItem['tone'];
+  /** An asset id to move, or null for a story that moves the whole board. */
+  assetId: string | null;
+}
+
+/** The queue of press waiting to print, and what it was written about. */
+export interface PressState {
+  queue: PressItem[];
+  /**
+   * A coarse fingerprint of the empire when the queue was written. When this
+   * stops matching, the press is out of date and worth refreshing even if
+   * there are items left.
+   */
+  signature: string;
+  /** Wall-clock ms of the last attempt, successful or not. Rate-limits calls. */
+  lastFetchAt: number;
+}
+
 export interface NewsItem {
   id: string;
   headline: string;
@@ -420,6 +450,11 @@ export interface GameState {
   /** Chained follow-ups waiting to fire, as seconds remaining. */
   scheduledEvents: ScheduledEvent[];
   news: NewsItem[];
+  /**
+   * Press written about this empire by the optional AI layer, cached so it
+   * costs about one call every fifteen minutes and keeps printing offline.
+   */
+  press: PressState;
   log: LogEntry[];
 
   /** Permanent prestige currency and the multipliers it has bought. */

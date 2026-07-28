@@ -69,6 +69,7 @@ export function migrate(parsed: Partial<GameState> | null): GameState {
     pendingEvents: parsed.pendingEvents ?? [],
     scheduledEvents: parsed.scheduledEvents ?? [],
     news: parsed.news ?? [],
+    press: parsed.press ?? { queue: [], signature: '', lastFetchAt: 0 },
     log: parsed.log ?? [],
     legacyUpgrades: parsed.legacyUpgrades ?? {},
     stats: { ...fresh.stats, ...(parsed.stats ?? {}) },

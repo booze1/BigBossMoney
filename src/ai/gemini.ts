@@ -2,85 +2,25 @@ import type { CustomDesign } from '../engine/types';
 import { CATEGORIES } from '../engine/content/businesses';
 import { TRAITS } from '../engine/content/traits';
 import { DESIGN_LIMITS, DesignError, validateDesign } from '../engine/custom';
+import { AiError, callGemini } from './client';
+export { AiError } from './client';
+
+export {
+  DEFAULT_MODEL,
+  getApiKey,
+  getModel,
+  hasApiKey,
+  setApiKey,
+  setModel,
+} from './client';
 
 /**
- * Gemini, bring-your-own-key.
+ * Turning a sentence into a business.
  *
- * The game is a static site with no server, so there is nowhere to hide a
- * shared API key — anything in the bundle can be read out of it. The player
- * supplies their own, it is held in localStorage on their device, and it is
- * deliberately *not* part of GameState: the save is exportable as a text code
- * and a key must never travel inside one.
- *
- * Everything here is optional. No key, no signal, a refused request or a reply
- * that does not parse all land in the same place — the caller gets an error
- * with something sayable in it and the game carries on exactly as it did
- * before. Generated content is written into the save once and never fetched
- * again, so a design keeps working on a train forever after.
+ * The call itself lives in client.ts; this is the job description — what the
+ * model is told, what shape the answer must take, and the refine path that
+ * changes one thing about a design without disturbing the rest of it.
  */
-
-const KEY_STORAGE = 'bigbossmoney.gemini.key';
-const MODEL_STORAGE = 'bigbossmoney.gemini.model';
-
-/** Fast and cheap, and on the free tier. Overridable in Settings. */
-export const DEFAULT_MODEL = 'gemini-2.5-flash';
-
-const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-const TIMEOUT_MS = 45_000;
-
-// ---------------------------------------------------------------- the key
-
-export function getApiKey(): string | null {
-  try {
-    const key = localStorage.getItem(KEY_STORAGE);
-    return key && key.trim() ? key.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-export function setApiKey(key: string | null): void {
-  try {
-    if (key && key.trim()) localStorage.setItem(KEY_STORAGE, key.trim());
-    else localStorage.removeItem(KEY_STORAGE);
-  } catch {
-    /* private browsing; the feature is simply unavailable */
-  }
-}
-
-export function getModel(): string {
-  try {
-    return localStorage.getItem(MODEL_STORAGE)?.trim() || DEFAULT_MODEL;
-  } catch {
-    return DEFAULT_MODEL;
-  }
-}
-
-export function setModel(model: string | null): void {
-  try {
-    if (model && model.trim()) localStorage.setItem(MODEL_STORAGE, model.trim());
-    else localStorage.removeItem(MODEL_STORAGE);
-  } catch {
-    /* ignore */
-  }
-}
-
-export const hasApiKey = (): boolean => getApiKey() !== null;
-
-/**
- * Errors the UI can say out loud. The message is written for a player rather
- * than a developer, because it is going straight onto the screen.
- */
-export class AiError extends Error {
-  constructor(
-    message: string,
-    readonly kind: 'no-key' | 'rejected' | 'rate-limit' | 'model' | 'network' | 'bad-reply' | 'blocked',
-  ) {
-    super(message);
-  }
-}
-
-// ------------------------------------------------------------------ prompt
 
 /**
  * The model is told exactly which primitives exist, because every one it
@@ -168,101 +108,7 @@ const RESPONSE_SCHEMA = {
   },
 } as const;
 
-// -------------------------------------------------------------------- call
-
-async function callGemini(userPrompt: string, signal?: AbortSignal): Promise<unknown> {
-  const key = getApiKey();
-  if (!key) throw new AiError('No Gemini key set. Add one in Settings.', 'no-key');
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  signal?.addEventListener('abort', () => controller.abort());
-
-  let response: Response;
-  try {
-    response = await fetch(`${ENDPOINT}/${encodeURIComponent(getModel())}:generateContent`, {
-      method: 'POST',
-      // The key goes in a header rather than the query string so it does not
-      // end up in a URL that could be logged by anything in between.
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      signal: controller.signal,
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt() }] },
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: RESPONSE_SCHEMA,
-          temperature: 1,
-maxOutputTokens: 8192,
-        },
-      }),
-    });
-  } catch (err) {
-    throw new AiError(
-      controller.signal.aborted
-        ? 'That took too long. Try again, or try a shorter description.'
-        : 'Could not reach Gemini. Check your connection.',
-      'network',
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    // The message is player-facing, so it says what to do rather than what
-    // happened. The status is what distinguishes them.
-    if (response.status === 400 || response.status === 401 || response.status === 403) {
-      throw new AiError('That key was refused. Check it in Settings.', 'rejected');
-    }
-    if (response.status === 404) {
-      throw new AiError(
-        `Model "${getModel()}" is not available on your key. Try another in Settings.`,
-        'model',
-      );
-    }
-    if (response.status === 429) {
-      throw new AiError('Gemini is rate-limiting you. Wait a minute and try again.', 'rate-limit');
-    }
-    throw new AiError(`Gemini returned an error (${response.status}). ${body.slice(0, 120)}`, 'network');
-  }
-
-  const payload = (await response.json().catch(() => null)) as {
-    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
-    promptFeedback?: { blockReason?: string };
-  } | null;
-
-  if (payload?.promptFeedback?.blockReason) {
-    throw new AiError('Gemini would not answer that one. Try describing it differently.', 'blocked');
-  }
-
-  const candidate = payload?.candidates?.[0];
-  if (candidate?.finishReason === 'SAFETY') {
-    throw new AiError('Gemini would not answer that one. Try describing it differently.', 'blocked');
-  }
-  if (candidate?.finishReason === 'MAX_TOKENS') {
-    throw new AiError('The reply was cut off. Try a simpler description.', 'bad-reply');
-  }
-
-  const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
-  if (!text.trim()) throw new AiError('Gemini sent nothing back. Try again.', 'bad-reply');
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    // responseSchema makes this unlikely, but a truncated or fenced reply is
-    // still possible and must not reach the engine as a half-parsed object.
-    const fenced = text.match(/\{[\s\S]*\}/);
-    if (fenced) {
-      try {
-        return JSON.parse(fenced[0]);
-      } catch {
-        /* fall through */
-      }
-    }
-    throw new AiError('Gemini sent something unreadable. Try again.', 'bad-reply');
-  }
-}
+const DESIGN_CALL = { get system() { return systemPrompt(); }, schema: RESPONSE_SCHEMA };
 
 // ------------------------------------------------------------------ public
 
@@ -272,6 +118,7 @@ export async function generateDesign(prompt: string, signal?: AbortSignal): Prom
   if (!clean) throw new AiError('Describe the business first.', 'bad-reply');
 
   const raw = await callGemini(
+    DESIGN_CALL,
     `Design this business:\n\n"""${clean}"""\n\nTake it seriously, however it is described.`,
     signal,
   );
@@ -315,6 +162,7 @@ export async function refineDesign(
   });
 
   const raw = await callGemini(
+    DESIGN_CALL,
     `The player originally asked for:\n"""${design.prompt || design.tagline}"""\n\n` +
       `Here is the current design:\n${previous}\n\n` +
       `Change it as follows, and leave everything else as it is:\n"""${clean}"""`,

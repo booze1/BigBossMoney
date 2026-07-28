@@ -12,6 +12,8 @@ import { TUNING } from './engine/content/tuning';
 import { createRuntime, step } from './engine/sim';
 import { apply, type Action, type ActionResult } from './engine/actions';
 import { load, save } from './engine/save';
+import { hasApiKey } from './ai/client';
+import { PRESS_MIN_INTERVAL_MS, generatePress, pressSignature, shouldRefreshPress } from './ai/world';
 
 /**
  * The game runs on a mutable state object stepped by a rAF loop, with React
@@ -42,6 +44,8 @@ const GameContext = createContext<GameContextValue | null>(null);
 /** How often React is re-rendered from the simulation, in ms. */
 const RENDER_INTERVAL_MS = 100;
 const SAVE_INTERVAL_MS = 5_000;
+/** How often the press queue is checked. The fetch itself is far rarer. */
+const PRESS_CHECK_INTERVAL_MS = 60_000;
 
 export function GameProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef<GameState | null>(null);
@@ -114,6 +118,57 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Persist on the way out so a closed tab never loses more than a few seconds.
+  /**
+   * Keeps the empire's press stocked.
+   *
+   * This lives here rather than in the engine on purpose: the engine has no
+   * network and must not acquire one — it runs headless in the tuning tools and
+   * in the test suite, and a fetch inside the tick would make both impossible.
+   * The engine only ever consumes a queue that is already in the save.
+   *
+   * Everything about it is best-effort. No key, no signal, a refused request or
+   * a reply that does not parse all end the same way: the queue stays as it is
+   * and the authored templates keep printing. The player is never told, because
+   * there is nothing they need to do.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const tick = async () => {
+      const state = stateRef.current!;
+      if (cancelled || !hasApiKey()) return;
+
+      const signature = pressSignature(state);
+      const stale = signature !== state.press.signature;
+      if (!stale && !shouldRefreshPress(state)) return;
+      // The interval floor applies even to a stale queue, so a fast-changing
+      // empire cannot turn into a burst of calls on somebody's free tier.
+      if (Date.now() - state.press.lastFetchAt < PRESS_MIN_INTERVAL_MS) return;
+
+      // Stamped before the request, so a failure still counts against the
+      // interval and a persistently broken key does not retry every minute.
+      state.press.lastFetchAt = Date.now();
+      try {
+        const items = await generatePress(state, controller.signal);
+        if (cancelled || items.length === 0) return;
+        const current = stateRef.current!;
+        current.press.queue.push(...items);
+        current.press.signature = signature;
+      } catch {
+        /* the templates carry on */
+      }
+    };
+
+    void tick();
+    const timer = setInterval(() => void tick(), PRESS_CHECK_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, []);
+
   useEffect(() => {
     const handler = () => save(stateRef.current!);
     window.addEventListener('pagehide', handler);

@@ -111,6 +111,7 @@ export function createInitialState(carry?: CarryOver): GameState {
     pendingEvents: [],
     scheduledEvents: [],
     news: [],
+    press: { queue: [], signature: '', lastFetchAt: 0 },
     log: [
       {
         id: uid('log'),
