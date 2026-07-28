@@ -25,11 +25,15 @@ import {
 } from '../../engine/selectors';
 import { clock, money, rate, pct } from '../../engine/format';
 import { Card, Chip, ListRow, Meter, Modal, SectionLabel, Empty } from '../components/common';
+import { DesignPreview, DesignSheet } from './DesignSheet';
+import { displayFor } from '../../engine/custom';
+import { traitPriceMultiplier } from '../../engine/premises';
 
 export function EmpireScreen() {
   const { state, dispatch } = useGame();
   const [openId, setOpenId] = useState<string | null>(null);
   const [shoppingIn, setShoppingIn] = useState<CategoryId | null>(null);
+  const [designing, setDesigning] = useState(false);
 
   const income = businessIncome(state);
   const open = state.businesses.find((b) => b.id === openId) ?? null;
@@ -59,6 +63,41 @@ export function EmpireScreen() {
           <BusinessRow key={b.id} business={b} onOpen={() => setOpenId(b.id)} />
         ))}
       </Card>
+
+      <SectionLabel>Your own</SectionLabel>
+      {state.designs.map((design) => {
+        const cost =
+          businessCost(state, CATEGORY_BY_ID[design.archetype]) * traitPriceMultiplier(design.traits);
+        const affordable = state.cash >= cost;
+        const trading = state.businesses.filter((b) => b.designId === design.id).length;
+
+        return (
+          <div key={design.id}>
+            <DesignPreview design={design} compact />
+            <button
+              className={`btn btn-block ${affordable ? 'btn-primary' : ''}`}
+              style={{ marginTop: -4, marginBottom: 12 }}
+              disabled={!affordable}
+              onClick={() =>
+                dispatch({ type: 'buyBusiness', category: design.archetype, designId: design.id })
+              }
+            >
+              {!affordable
+                ? `Need ${money(cost)}`
+                : trading > 0
+                  ? `Open another — ${money(cost)}`
+                  : `Open ${design.name} — ${money(cost)}`}
+            </button>
+          </div>
+        );
+      })}
+      <button
+        className={`btn btn-block ${state.designs.length === 0 ? 'btn-primary' : 'btn-ghost'}`}
+        style={{ marginBottom: 16 }}
+        onClick={() => setDesigning(true)}
+      >
+        {state.designs.length === 0 ? 'Design your own business' : 'Design another'}
+      </button>
 
       <SectionLabel>Open something new</SectionLabel>
       {CATEGORIES.map((def) => {
@@ -115,6 +154,7 @@ export function EmpireScreen() {
         );
       })}
 
+      {designing && <DesignSheet onClose={() => setDesigning(false)} />}
       {shoppingIn && (
         <PremisesSheet category={shoppingIn} onClose={() => setShoppingIn(null)} />
       )}
@@ -154,13 +194,15 @@ function ActiveBoosts() {
 
 function BusinessRow({ business, onOpen }: { business: Business; onOpen: () => void }) {
   const { state } = useGame();
-  const def = CATEGORY_BY_ID[business.category];
+  // A designed business wears its own icon and name rather than its
+  // archetype's — the archetype is how it earns, not what it is.
+  const look = displayFor(state, business);
   const fin = businessFinancials(state, business);
   const manager = MANAGER_BY_TIER[business.manager];
 
   return (
     <ListRow onClick={onOpen} label={`${business.name}, level ${business.level}`}>
-      <div className="avatar" style={{ borderColor: def.accent + '55' }}>{def.icon}</div>
+      <div className="avatar" style={{ borderColor: look.accent + '55' }}>{look.icon}</div>
       <div className="grow">
         <div className="row row-tight">
           <span className="truncate" style={{ fontWeight: 580 }}>{business.name}</span>
@@ -198,14 +240,14 @@ function BusinessDetail({ business, onClose }: { business: Business; onClose: ()
   const { state, dispatch } = useGame();
   const [tab, setTab] = useState<'ops' | 'staff' | 'premises'>('ops');
 
-  const def = CATEGORY_BY_ID[business.category];
+  const look = displayFor(state, business);
   const fin = businessFinancials(state, business);
   const upCost = upgradeCost(state, business);
 
   return (
     <Modal open onClose={onClose}>
       <div className="row" style={{ marginBottom: 14 }}>
-        <div className="avatar" style={{ borderColor: def.accent + '55' }}>{def.icon}</div>
+        <div className="avatar" style={{ borderColor: look.accent + '55' }}>{look.icon}</div>
         <div className="grow">
           <input
             className="textinput"
@@ -214,7 +256,7 @@ function BusinessDetail({ business, onClose }: { business: Business; onClose: ()
             onChange={(e) => dispatch({ type: 'renameBusiness', id: business.id, name: e.target.value })}
           />
           <div className="faint" style={{ fontSize: 12, paddingLeft: 8 }}>
-            {def.name} · Level {business.level}
+            {look.name} · Level {business.level}
           </div>
         </div>
       </div>

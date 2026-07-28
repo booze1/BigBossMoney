@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DEFAULT_MODEL, generateDesign, getApiKey, getModel, setApiKey, setModel } from '../../ai/gemini';
 import { useGame } from '../../store';
 import { TIERS, TUNING } from '../../engine/content/tuning';
 import { LEGACY_UPGRADES } from '../../engine/content/luck';
@@ -424,6 +425,8 @@ function Settings() {
 
   return (
     <>
+      <GeminiSettings />
+
       <Card>
         {toggles.map((t) => (
           <div key={t.key} style={{ marginBottom: 14 }}>
@@ -499,5 +502,100 @@ function Settings() {
         </div>
       </Modal>
     </>
+  );
+}
+
+/**
+ * The key field.
+ *
+ * There is no server behind this game, so a shared key would have to sit in the
+ * bundle where anyone could read it out. The player's own key stays on their
+ * device and never enters the save — which matters, because the save is a
+ * copyable text code people are told they can pass around.
+ */
+function GeminiSettings() {
+  const [key, setKey] = useState(getApiKey() ?? '');
+  const [model, setModelValue] = useState(getModel());
+  const [status, setStatus] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  const saved = getApiKey();
+
+  async function test() {
+    setTesting(true);
+    setStatus(null);
+    setApiKey(key);
+    setModel(model);
+    try {
+      // A real generation, because anything cheaper would not prove the key
+      // works for the thing the player is going to do with it.
+      const design = await generateDesign('a corner shop that sells only umbrellas');
+      setStatus(`Working — it came back with "${design.name}".`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <div className="card-head">
+        <span className="card-title">Designing your own businesses</span>
+        {saved && <span className="chip chip-pos">Key set</span>}
+      </div>
+      <div className="hint" style={{ marginBottom: 10 }}>
+        Describing a business and having it written into the game uses Google&apos;s Gemini. This app
+        has no server, so it uses your key rather than one hidden in the page. Free from Google AI
+        Studio. It stays on this device and is never included when you export your save.
+      </div>
+
+      <input
+        className="textinput"
+        type="password"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="Paste a Gemini API key"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+      />
+
+      <input
+        className="textinput"
+        style={{ marginTop: 8 }}
+        spellCheck={false}
+        placeholder={DEFAULT_MODEL}
+        value={model}
+        onChange={(e) => setModelValue(e.target.value)}
+      />
+      <div className="hint" style={{ marginTop: 4 }}>
+        Model name. Leave as {DEFAULT_MODEL} unless your key does not have it.
+      </div>
+
+      <div className="btn-group" style={{ marginTop: 11 }}>
+        <button
+          className="btn btn-ghost btn-sm"
+          disabled={testing || (!key && !saved)}
+          onClick={() => {
+            setApiKey(null);
+            setModel(null);
+            setKey('');
+            setModelValue(DEFAULT_MODEL);
+            setStatus('Key removed from this device.');
+          }}
+        >
+          Forget it
+        </button>
+        <button
+          className={`btn btn-sm ${key.trim() ? 'btn-primary' : ''}`}
+          disabled={testing || !key.trim()}
+          onClick={test}
+        >
+          {testing ? 'Checking…' : 'Save and test'}
+        </button>
+      </div>
+
+      {status && <div className="hint" style={{ marginTop: 10 }}>{status}</div>}
+    </Card>
   );
 }

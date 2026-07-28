@@ -41,6 +41,24 @@ gate which cards it can draw. A flaw can be cured, at a price, by the card it
 unlocks; the shortlist does not reshuffle until you buy, so the choice cannot be
 dodged.
 
+**Design your own.** Describe a business in your own words — anything at all —
+and it becomes a real one: identity, premises traits, the job titles its staff
+hold, and its own deck of event cards written around whatever you said. You can
+argue with the result in plain language ("make it seedier") before keeping it.
+
+This is the one thing that needs a key. The game has no server, so there is
+nowhere to hide a shared one; you paste your own free Gemini key into Settings
+and it stays on your device — never in the save, which is exportable as a text
+code. Everything else works without it, and anything you design is written into
+your save and keeps working offline forever after.
+
+The engine owns every number. A design names one of the six measured archetypes
+and borrows trait ids from the priced list; its cards pay out on the same
+authored 0–600 scale as the hand-written ones. Gemini writes fiction and nothing
+else, which is why a business can be a funeral home that also does weddings
+without the balance noticing. Designs survive going public even though the
+businesses do not, so a catalogue accumulates across runs.
+
 **Staff are people.** Everyone has a name, a job and a start date. Tenure pays —
 a lifer is worth up to a quarter more than a new hire — and severance costs,
 growing with service and charged for the whole roster at once when you close a
@@ -117,8 +135,11 @@ src/
     rolls.ts         rarity rolling and reward application
     save.ts          localStorage persistence and offline catch-up
     premises.ts      the three-site shortlist and what traits do to the money
+    custom.ts        player-designed businesses, and the validator they enter by
     content/         tuning, businesses, traits, staff, event decks, markets,
                      cities, luxury
+  ai/
+    gemini.ts        bring-your-own-key client; entirely optional
   ui/                screens and components
   store.tsx          mutable state + rAF loop + React bridge
 ```
@@ -209,6 +230,15 @@ something, no dead table entries), economy invariants (cash never negative, no
 buy-then-sell arbitrage, fresh businesses profitable while renting), the luck
 distribution, offline simulation bounds, save round-tripping, prestige, and the
 real-estate systems.
+
+Custom businesses are treated as a security boundary, because their content
+arrives as JSON from a language model over a network shaped by free text. The
+validator rejects anything structural (an archetype outside the six, too few
+cards) and clamps anything numeric, refuses the four effects a design must not
+reach — flat cash, boosts, permanent trait changes, chains — and namespaces
+memory tags so generated content can never satisfy a gate the authored deck
+reads. All of that is tested with hostile payloads, alongside the Gemini
+client's full failure taxonomy against a mocked fetch.
 
 The premises and staff systems bring their own, several of which exist to stop
 a feature quietly becoming a trap: every curable flaw must have a card that can

@@ -85,7 +85,7 @@ describe('gemini key handling', () => {
     // handed to anyone the player sent it to.
     setApiKey('AIzaSECRET');
     const code = exportSave(createInitialState());
-    const json = Buffer.from(code, 'base64').toString('utf8');
+    const json = decodeURIComponent(escape(atob(code)));
     expect(json).not.toContain('AIzaSECRET');
     expect(json).not.toContain('gemini');
   });
@@ -105,12 +105,12 @@ describe('gemini key handling', () => {
 describe('gemini request', () => {
   it('sends the key as a header and never in the URL', async () => {
     setApiKey('AIzaSECRET');
-    const fetchMock = vi.fn(async () => asText(payload()));
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => asText(payload()));
     vi.stubGlobal('fetch', fetchMock);
 
     await generateDesign('a barbershop that is obviously a front');
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).not.toContain('AIzaSECRET');
     expect(url).toContain(DEFAULT_MODEL);
     expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe('AIzaSECRET');
@@ -119,11 +119,11 @@ describe('gemini request', () => {
 
   it('asks for JSON against a schema, so the reply is parseable by construction', async () => {
     setApiKey('k');
-    const fetchMock = vi.fn(async () => asText(payload()));
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => asText(payload()));
     vi.stubGlobal('fetch', fetchMock);
     await generateDesign('a barbershop');
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.generationConfig.responseMimeType).toBe('application/json');
     expect(body.generationConfig.responseSchema.properties.archetype.enum).toContain('retail');
     // The player's words reach the model; the system prompt carries the rules.
@@ -134,7 +134,7 @@ describe('gemini request', () => {
   it('honours a custom model name', async () => {
     setApiKey('k');
     setModel('gemini-3-pro');
-    const fetchMock = vi.fn(async () => asText(payload()));
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => asText(payload()));
     vi.stubGlobal('fetch', fetchMock);
     await generateDesign('a barbershop');
     expect(fetchMock.mock.calls[0][0]).toContain('gemini-3-pro');
@@ -244,13 +244,13 @@ describe('gemini output is never trusted', () => {
 
   it('sends the current design and the nudge when refining', async () => {
     setApiKey('k');
-    const fetchMock = vi.fn(async () => asText(payload()));
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => asText(payload()));
     vi.stubGlobal('fetch', fetchMock);
     const original = validateDesign(payload());
 
     await refineDesign(original, 'make it seedier');
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     const sent = JSON.stringify(body.contents);
     expect(sent).toContain('make it seedier');
     expect(sent).toContain('The Third Chair');

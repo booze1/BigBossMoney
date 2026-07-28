@@ -336,3 +336,48 @@ assertion that compared a `Date.now()`-derived severance to four decimal places.
 Phase 5 is untouched: a luck pity counter, dividends and portfolio history,
 property renovation, a real luxury collection view, cross-run milestone
 unlocks, achievements, onboarding, and audio.
+
+## Phase 5 — businesses you invent
+
+Brief: any business you want, written by Gemini, in a game that still works on
+a train. Four answers shaped it — every business can be custom, designs survive
+prestige, prose-then-refine authoring, and the engine keeps every number.
+
+That last one is what makes it buildable. A design carries no economics: it
+names one of the six measured archetypes, borrows trait ids from the priced
+list, and its cards pay on the authored 0–600 scale. Economically a barbershop
+that is obviously a front *is* a retail store, so the pacing work survives
+intact while the fiction is unconstrained.
+
+**The validator is the only door in**, and it treats its input as hostile —
+JSON, from a model, over a network, shaped by a free-text box, going straight
+into the object the game is computed from. Structural problems are rejected;
+numeric ones are clamped. Four effects are refused outright because a design
+must not reach them: flat cash does not scale with the empire, boosts are the
+strongest thing in the game, trait changes are permanent, and chains could
+queue a card that does not exist. Tags are namespaced to `custom:` so generated
+content can never satisfy a gate the authored deck reads.
+
+**The key is the player's.** A static site has nowhere to hide a shared one.
+It lives in localStorage, deliberately outside GameState, because the save
+exports as a copyable code — there is a test asserting no key can travel in one.
+
+Two bugs surfaced while writing the tests. The clamp helper returned a bare `0`
+for non-finite input, skipping its own minimum, so a card arriving with NaN odds
+became a choice that could never succeed. And card lookups went through the
+module-load index, which a design's deck cannot be in — a custom card would have
+queued fine and then vanished when the player tried to play it.
+
+Verified against the live API as far as possible without a key: an
+unauthenticated POST reaches Google and returns 400 "API key not valid",
+confirming the URL, verb and header path. The full flow was then driven in a
+browser with the endpoint intercepted — describe, build, refine, keep, open,
+hire — ending with a person called Ronan Lindqvist working *in the back* of a
+business that did not exist a minute earlier. A successful real generation has
+never been run from here.
+
+### Still open
+The world that reacts, and people you can talk to — phases two and three of the
+AI brief. Plus the older list: a luck pity counter, dividends and portfolio
+history, property renovation, a luxury collection view, achievements,
+onboarding, audio.
