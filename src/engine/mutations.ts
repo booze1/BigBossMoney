@@ -108,11 +108,13 @@ export function coverShortfall(s: GameState): void {
  * Puts someone on the books. Names are unique within a business, and the hire
  * time is what every tenure figure is derived from later.
  */
-export function hire(b: Business): StaffMember {
+export function hire(b: Business, roles?: string[]): StaffMember {
   const member: StaffMember = {
     id: uid('staff'),
     name: staffName(b.roster.map((m) => m.name)),
-    role: roleFor(b.category),
+    // A design supplies its own job titles, which is most of what makes its
+    // roster read as that business rather than as a generic shop.
+    role: roles && roles.length > 0 ? roles[Math.floor(Math.random() * roles.length)] : roleFor(b.category),
     hiredAt: Date.now(),
   };
   b.roster.push(member);

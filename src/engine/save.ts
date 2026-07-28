@@ -58,6 +58,7 @@ export function migrate(parsed: Partial<GameState> | null): GameState {
     // fresh defaults, so a partially-written save still loads.
     businesses: parsed.businesses?.length ? parsed.businesses : fresh.businesses,
     premises: parsed.premises ?? {},
+    designs: parsed.designs ?? [],
     assets: parsed.assets?.length ? parsed.assets : fresh.assets,
     cities: parsed.cities?.length ? parsed.cities : fresh.cities,
     properties: parsed.properties ?? fresh.properties,
@@ -83,6 +84,7 @@ export function migrate(parsed: Partial<GameState> | null): GameState {
     if (!b.tags) b.tags = {};
     if (!b.recentCards) b.recentCards = [];
     if (!Array.isArray(b.traits)) b.traits = [];
+    if (b.designId === undefined) b.designId = null;
 
     // Headcount used to be an integer. Give those saves a roster of real
     // people, backdated to when the business opened — they have been there the

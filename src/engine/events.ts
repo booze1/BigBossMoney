@@ -1,7 +1,7 @@
 import type { Business, EventOutcome, GameState } from './types';
 import { TUNING } from './content/tuning';
 import { CATEGORY_BY_ID } from './content/businesses';
-import { EVENT_BY_ID } from './content/events';
+import { cardById, designById } from './custom';
 import { empireIncomeMultiplier, maxStaff, saturationMultiplier, totalLuck } from './selectors';
 import { addBoost, addCash, addLog, clampMorale, grantRolls, hire } from './mutations';
 import { TRAIT_BY_ID } from './content/traits';
@@ -60,7 +60,7 @@ export function resolveEventChoice(
   choiceIndex: number,
   opts: { efficiency?: number; silent?: boolean } = {},
 ): EventResolution | null {
-  const def = EVENT_BY_ID[defId];
+  const def = cardById(s, defId);
   if (!def) return null;
   const choice = def.choices[choiceIndex];
   if (!choice) return null;
@@ -150,7 +150,8 @@ function applyOutcome(
     const before = business.roster.length;
     if (outcome.staff > 0) {
       const room = maxStaff(business) - before;
-      for (let i = 0; i < Math.min(outcome.staff, room); i++) hire(business);
+      const roles = designById(s, business.designId)?.staffRoles;
+      for (let i = 0; i < Math.min(outcome.staff, room); i++) hire(business, roles);
     } else {
       // Cards let people go from the back of the queue: the newest hires,
       // never the lifers. Losing someone with fifteen years in to a random

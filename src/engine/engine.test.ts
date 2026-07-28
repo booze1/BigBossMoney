@@ -9,6 +9,7 @@ import { ROLL_TABLE } from './content/luck';
 import { CATEGORIES } from './content/businesses';
 import { CURABLE_TRAITS, TRAIT_BY_ID, traitsFor } from './content/traits';
 import { generateOffers } from './premises';
+import { DESIGN_LIMITS, DesignError, cardById, validateDesign } from './custom';
 import { migrate } from './save';
 import { createBusiness } from './state';
 import { hire } from './mutations';
@@ -965,5 +966,280 @@ describe('the while-you-were-out report', () => {
     const restored = JSON.parse(JSON.stringify(s)) as GameState;
     expect(restored.offlineReport!.curve).toEqual(s.offlineReport!.curve);
     expect(restored.offlineReport!.notes.length).toBe(s.offlineReport!.notes.length);
+  });
+});
+
+// A design as a well-behaved model would return it. Individual tests mutate a
+// copy of this to check one thing at a time.
+function goodDesign(): Record<string, unknown> {
+  return {
+    name: 'The Third Chair',
+    tagline: "Gents' grooming",
+    blurb: 'Two barbers, four chairs, and a queue of men who never need a haircut.',
+    archetype: 'retail',
+    traits: ['backstreet'],
+    staffRoles: ['on the chairs', 'on the door', 'in the back'],
+    icon: '💈',
+    cards: Array.from({ length: 5 }, (_, i) => ({
+      title: `Card ${i}`,
+      body: 'Something happens that requires a decision from you.',
+      choices: [
+        {
+          label: 'Play it safe',
+          hint: 'Costs money',
+          odds: 1,
+          good: { text: 'It goes quietly.', cashSeconds: -80 },
+          bad: { text: 'It goes quietly.', cashSeconds: -80 },
+        },
+        {
+          label: 'Push it',
+          hint: 'Could pay',
+          odds: 0.6,
+          good: { text: 'It pays off.', cashSeconds: 140 },
+          bad: { text: 'It does not.', cashSeconds: -160, morale: -0.05 },
+        },
+      ],
+    })),
+  };
+}
+
+describe('custom business designs', () => {
+  it('accepts a well-formed design and namespaces its cards', () => {
+    const d = validateDesign(goodDesign());
+    expect(d.name).toBe('The Third Chair');
+    expect(d.archetype).toBe('retail');
+    expect(d.cards).toHaveLength(5);
+    for (const card of d.cards) {
+      expect(card.id.startsWith(`custom_${d.id}_`)).toBe(true);
+      expect(card.category).toBe('retail');
+      // A generated card must never collide with an authored one.
+      expect(EVENT_BY_ID[card.id]).toBeUndefined();
+    }
+  });
+
+  it('refuses an archetype that is not one of the six measured economies', () => {
+    for (const bad of ['casino', 'RETAIL', '', 'airline', null, 42]) {
+      const raw = { ...goodDesign(), archetype: bad };
+      expect(() => validateDesign(raw), `archetype ${JSON.stringify(bad)}`).toThrow(DesignError);
+    }
+  });
+
+  it('drops invented trait ids rather than failing the whole design', () => {
+    const raw = { ...goodDesign(), traits: ['backstreet', 'haunted', 'excellent_vibes'] };
+    const d = validateDesign(raw);
+    expect(d.traits).toEqual(['backstreet']);
+  });
+
+  it('clamps payouts into the band hand-written cards are authored in', () => {
+    const raw = goodDesign();
+    (raw.cards as Record<string, unknown>[])[0].choices = [
+      {
+        label: 'Absurd', hint: 'x', odds: 0.5,
+        good: { text: 'ok', cashSeconds: 5_000_000, luck: 9999, rolls: 500, morale: 40 },
+        bad: { text: 'ok', cashSeconds: -5_000_000 },
+      },
+      {
+        label: 'Also absurd', hint: 'x', odds: 0.5,
+        good: { text: 'ok', cashSeconds: 1 },
+        bad: { text: 'ok', cashSeconds: -1 },
+      },
+    ];
+    const d = validateDesign(raw);
+    const [choice] = d.cards[0].choices;
+    expect(choice.good.cashSeconds).toBe(DESIGN_LIMITS.cashSecondsMax);
+    expect(choice.bad.cashSeconds).toBe(-DESIGN_LIMITS.cashSecondsMax);
+    expect(choice.good.luck).toBe(DESIGN_LIMITS.luckMax);
+    expect(choice.good.rolls).toBe(DESIGN_LIMITS.rollsMax);
+    expect(choice.good.morale).toBe(DESIGN_LIMITS.moraleMax);
+  });
+
+  it('treats NaN and Infinity as zero rather than letting them into the state', () => {
+    const raw = goodDesign();
+    (raw.cards as Record<string, unknown>[])[0].choices = [
+      {
+        label: 'Poison', hint: 'x', odds: Number.NaN,
+        good: { text: 'ok', cashSeconds: Number.POSITIVE_INFINITY },
+        bad: { text: 'ok', cashSeconds: Number.NaN },
+      },
+      { label: 'Fine', hint: 'x', odds: 0.5, good: { text: 'ok' }, bad: { text: 'ok' } },
+    ];
+    const d = validateDesign(raw);
+    const [choice] = d.cards[0].choices;
+    expect(Number.isFinite(choice.odds)).toBe(true);
+    expect(choice.odds).toBeGreaterThanOrEqual(0.15);
+    expect(choice.good.cashSeconds ?? 0).toBe(0);
+    expect(choice.bad.cashSeconds ?? 0).toBe(0);
+  });
+
+  it('never lets a design grant the effects reserved for authored cards', () => {
+    const raw = goodDesign();
+    (raw.cards as Record<string, unknown>[])[0].choices = [
+      {
+        label: 'Overreach', hint: 'x', odds: 0.5,
+        good: {
+          text: 'ok',
+          cash: 1e12,
+          boost: { label: 'Infinite money', kind: 'income', power: 100, duration: 99999, scope: 'empire' },
+          addTrait: 'corner_lot',
+          removeTrait: 'backstreet',
+          chain: { cardId: 'any_audit', delay: 1 },
+        },
+        bad: { text: 'ok' },
+      },
+      { label: 'Fine', hint: 'x', odds: 0.5, good: { text: 'ok' }, bad: { text: 'ok' } },
+    ];
+    const good = validateDesign(raw).cards[0].choices[0].good;
+    expect(good.cash).toBeUndefined();
+    expect(good.boost).toBeUndefined();
+    expect(good.addTrait).toBeUndefined();
+    expect(good.removeTrait).toBeUndefined();
+    expect(good.chain).toBeUndefined();
+  });
+
+  it('namespaces tags so a design cannot pull cards out of the authored deck', () => {
+    const raw = goodDesign();
+    (raw.cards as Record<string, unknown>[])[0].choices = [
+      {
+        label: 'Tag', hint: 'x', odds: 1,
+        // 'consent_order' gates a real bank card. A design must not be able to
+        // set it and start drawing content it was never meant to reach.
+        good: { text: 'ok', addTag: { tag: 'consent_order', seconds: 600 } },
+        bad: { text: 'ok' },
+      },
+      { label: 'Fine', hint: 'x', odds: 0.5, good: { text: 'ok' }, bad: { text: 'ok' } },
+    ];
+    const tag = validateDesign(raw).cards[0].choices[0].good.addTag!.tag;
+    expect(tag).toBe('custom:consent_order');
+
+    // Nothing a design can write may equal a gate the authored deck reads.
+    const authoredGates = new Set(
+      EVENT_CARDS.flatMap((c) => [c.requiresTag, c.excludesTag]).filter(Boolean),
+    );
+    expect(authoredGates.size).toBeGreaterThan(0);
+    for (const gate of authoredGates) expect(gate!.startsWith('custom:')).toBe(false);
+    expect(authoredGates.has(tag)).toBe(false);
+  });
+
+  it('rejects a design too thin to be a business', () => {
+    expect(() => validateDesign({ ...goodDesign(), cards: [] })).toThrow(DesignError);
+    expect(() => validateDesign({ ...goodDesign(), staffRoles: ['only one'] })).toThrow(DesignError);
+    expect(() => validateDesign({ ...goodDesign(), name: '   ' })).toThrow(DesignError);
+    expect(() => validateDesign(null)).toThrow(DesignError);
+    expect(() => validateDesign('a business that sells hats')).toThrow(DesignError);
+  });
+
+  it('caps a runaway deck rather than letting it swamp the draw', () => {
+    const raw = goodDesign();
+    raw.cards = Array.from({ length: 200 }, () => (goodDesign().cards as unknown[])[0]);
+    expect(validateDesign(raw).cards).toHaveLength(DESIGN_LIMITS.maxCards);
+  });
+
+  it('prices and runs a designed business exactly as its archetype', () => {
+    const s = createInitialState();
+    s.cash = 1e9;
+    const design = validateDesign({ ...goodDesign(), traits: [] });
+    apply(s, { type: 'saveDesign', design });
+
+    const expected = businessCost(s, CATEGORIES[0]);
+    const before = s.cash;
+    apply(s, { type: 'buyBusiness', category: 'retail', designId: design.id });
+
+    const b = s.businesses[s.businesses.length - 1];
+    expect(before - s.cash).toBeCloseTo(expected, 4);
+    expect(b.designId).toBe(design.id);
+    expect(b.category).toBe('retail');
+    expect(b.name).toBe('The Third Chair');
+    // Economically indistinguishable from a plain retail store of the same shape.
+    const plain = createBusiness('retail', [], { name: 'Control', traits: [] });
+    plain.level = b.level;
+    const control = createInitialState();
+    control.businesses = [plain];
+    const mine = createInitialState();
+    mine.businesses = [b];
+    expect(businessFinancials(mine, b).net).toBeCloseTo(businessFinancials(control, plain).net, 6);
+  });
+
+  it("hires into the design's own job titles", () => {
+    const s = createInitialState();
+    s.cash = 1e9;
+    const design = validateDesign(goodDesign());
+    apply(s, { type: 'saveDesign', design });
+    apply(s, { type: 'buyBusiness', category: 'retail', designId: design.id });
+    const b = s.businesses[s.businesses.length - 1];
+
+    for (let i = 0; i < 4; i++) apply(s, { type: 'hireStaff', id: b.id });
+    expect(b.roster.length).toBeGreaterThan(0);
+    for (const m of b.roster) expect(design.staffRoles).toContain(m.role);
+  });
+
+  it("draws the design's own cards and can resolve them", () => {
+    const s = createInitialState();
+    s.cash = 1e9;
+    const design = validateDesign(goodDesign());
+    apply(s, { type: 'saveDesign', design });
+    apply(s, { type: 'buyBusiness', category: 'retail', designId: design.id });
+    const b = s.businesses[s.businesses.length - 1];
+
+    // A custom card resolves through the state-aware lookup; it is not in the
+    // static index and would otherwise queue and then vanish.
+    const card = design.cards[0];
+    expect(cardById(s, card.id)).toBeTruthy();
+    const result = resolveEventChoice(s, b.id, card.id, 0);
+    expect(result).not.toBeNull();
+    expect(Number.isFinite(s.cash)).toBe(true);
+
+    // And over a long run it actually draws them.
+    playFor(s, 1200);
+    expect(b.recentCards.some((id) => id.startsWith('custom_'))).toBe(true);
+  });
+
+  it('keeps designs through an IPO and remembers the run count', () => {
+    const s = createInitialState();
+    s.cash = 1e9;
+    const design = validateDesign(goodDesign());
+    apply(s, { type: 'saveDesign', design });
+    apply(s, { type: 'buyBusiness', category: 'retail', designId: design.id });
+    expect(s.designs[0].runsOpened).toBe(1);
+
+    s.cash = TUNING.ipoMinNetWorth * 2;
+    apply(s, { type: 'ipo' });
+
+    // The empire is gone; the catalogue is not.
+    expect(s.businesses).toHaveLength(1);
+    expect(s.businesses[0].designId).toBeNull();
+    expect(s.designs).toHaveLength(1);
+    expect(s.designs[0].id).toBe(design.id);
+    expect(s.designs[0].runsOpened).toBe(1);
+
+    s.cash = 1e9;
+    apply(s, { type: 'buyBusiness', category: 'retail', designId: design.id });
+    expect(s.designs[0].runsOpened).toBe(2);
+    expect(s.designs[0].timesOpened).toBe(2);
+  });
+
+  it('will not retire a design that is still trading', () => {
+    const s = createInitialState();
+    s.cash = 1e9;
+    const design = validateDesign(goodDesign());
+    apply(s, { type: 'saveDesign', design });
+    apply(s, { type: 'buyBusiness', category: 'retail', designId: design.id });
+
+    apply(s, { type: 'deleteDesign', id: design.id });
+    expect(s.designs).toHaveLength(1);
+
+    apply(s, { type: 'sellBusiness', id: s.businesses[s.businesses.length - 1].id });
+    apply(s, { type: 'deleteDesign', id: design.id });
+    expect(s.designs).toHaveLength(0);
+  });
+
+  it('survives a save round-trip with its deck intact', () => {
+    const s = createInitialState();
+    const design = validateDesign(goodDesign());
+    apply(s, { type: 'saveDesign', design });
+
+    const restored = migrate(JSON.parse(JSON.stringify(s)));
+    expect(restored.designs).toHaveLength(1);
+    expect(restored.designs[0].cards).toHaveLength(design.cards.length);
+    expect(cardById(restored, design.cards[0].id)).toBeTruthy();
   });
 });

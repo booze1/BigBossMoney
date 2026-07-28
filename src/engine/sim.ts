@@ -8,7 +8,7 @@ import type {
 } from './types';
 import { TUNING } from './content/tuning';
 import { MANAGER_BY_TIER } from './content/businesses';
-import { EVENTS_BY_CATEGORY, EVENT_BY_ID } from './content/events';
+import { EVENTS_BY_CATEGORY } from './content/events';
 import { NEWS_TEMPLATES } from './content/markets';
 import { DEVELOPMENT_BY_TYPE, PROPERTY_HEADLINES, generateListing } from './content/realestate';
 import { LUXURY_BY_ID } from './content/luxury';
@@ -21,6 +21,7 @@ import {
   totalDebt,
 } from './selectors';
 import { traitEventRate } from './premises';
+import { cardById, designCards } from './custom';
 import { addCash, addLog, addNews, coverShortfall, grantRolls } from './mutations';
 import { chance, gaussian, pick, range, uid } from './rng';
 import { money } from './format';
@@ -304,7 +305,7 @@ function stepEvents(s: GameState, dt: number): void {
   for (const e of s.pendingEvents) e.expiresIn -= dt;
   const expired = s.pendingEvents.filter((e) => e.expiresIn <= 0);
   for (const e of expired) {
-    const def = EVENT_BY_ID[e.defId];
+    const def = cardById(s, e.defId);
     if (def) addLog(s, `You let "${def.title}" pass without a decision.`, 'neutral');
   }
   s.pendingEvents = s.pendingEvents.filter((e) => e.expiresIn > 0);
@@ -336,7 +337,7 @@ function queueCard(s: GameState, defId: string, businessId: string | null): void
   if (s.pendingEvents.length >= TUNING.maxPendingEvents) {
     const dropped = s.pendingEvents.shift();
     if (dropped) {
-      const droppedDef = EVENT_BY_ID[dropped.defId];
+      const droppedDef = cardById(s, dropped.defId);
       if (droppedDef) {
         addLog(s, `"${droppedDef.title}" went stale while other decisions piled up.`, 'neutral');
       }
@@ -367,7 +368,14 @@ function pickCardFor(s: GameState, b: Business) {
   // Category and empire-wide cards are both always in the pool. Sampling the
   // empire deck only some of the time made the pool size fluctuate, which
   // collapsed the memory window and let repeats through early.
-  const categoryPool = (EVENTS_BY_CATEGORY[b.category] ?? []).filter((c) => isDrawable(c, b));
+  // A design's own cards sit alongside its archetype's, not instead of them: a
+  // generated deck is at most sixteen cards and would repeat itself within
+  // minutes on its own, while the authored deck it inherits is the reason the
+  // business still surprises you an hour in.
+  const categoryPool = [
+    ...(EVENTS_BY_CATEGORY[b.category] ?? []),
+    ...designCards(s, b.designId),
+  ].filter((c) => isDrawable(c, b));
   const generalPool = (EVENTS_BY_CATEGORY['any'] ?? []).filter((c) => isDrawable(c, b));
   const pool = [...categoryPool, ...generalPool];
   if (pool.length === 0) return null;
@@ -403,7 +411,7 @@ function pickCardFor(s: GameState, b: Business) {
 
 /** A managed business picks the safest option and takes a reduced payoff. */
 function autoResolve(s: GameState, businessId: string, defId: string, efficiency: number): void {
-  const def = EVENT_BY_ID[defId];
+  const def = cardById(s, defId);
   if (!def) return;
   // Managers are risk-averse: they take the highest-odds choice available.
   let bestIndex = 0;

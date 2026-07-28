@@ -1,4 +1,4 @@
-import type { CategoryId, GameState, ManagerTier } from './types';
+import type { CategoryId, CustomDesign, GameState, ManagerTier } from './types';
 import { TUNING } from './content/tuning';
 import { CATEGORY_BY_ID, MANAGER_BY_TIER } from './content/businesses';
 import { DEVELOPMENT_BY_TYPE, generateCityListings } from './content/realestate';
@@ -29,14 +29,17 @@ import { applyRoll, type RollResult } from './rolls';
 import { resolveEventChoice } from './events';
 import { createBusiness, createInitialState } from './state';
 import { tenureLabel } from './content/staff';
-import { offersFor } from './premises';
+import { offersFor, traitPriceMultiplier } from './premises';
+import { designById } from './custom';
 import { money } from './format';
 import { uid } from './rng';
 
 export type Action =
   | { type: 'hustle' }
   | { type: 'viewPremises'; category: CategoryId }
-  | { type: 'buyBusiness'; category: CategoryId; offerId?: string }
+  | { type: 'buyBusiness'; category: CategoryId; offerId?: string; designId?: string }
+  | { type: 'saveDesign'; design: CustomDesign }
+  | { type: 'deleteDesign'; id: string }
   | { type: 'upgradeBusiness'; id: string }
   | { type: 'renameBusiness'; id: string; name: string }
   | { type: 'hireStaff'; id: string }
@@ -95,7 +98,38 @@ export function apply(s: GameState, action: Action): ActionResult {
       return {};
     }
 
+    // A design is content, not progress: saving one only files it in the
+    // catalogue. Opening a business from it is a separate, paid decision.
+    case 'saveDesign': {
+      const existing = s.designs.findIndex((d) => d.id === action.design.id);
+      if (existing >= 0) s.designs[existing] = action.design;
+      else s.designs.push(action.design);
+      return { message: `${action.design.name} filed.`, tone: 'good' };
+    }
+
+    case 'deleteDesign': {
+      const design = s.designs.find((d) => d.id === action.id);
+      if (!design) return {};
+      // Businesses already trading under it keep running — they hold their own
+      // copy of everything except the deck, and losing the deck mid-run would
+      // silently stop them surfacing decisions. Retiring is not demolition.
+      if (s.businesses.some((b) => b.designId === action.id)) {
+        return { message: `${design.name} is still trading. Sell it first.`, tone: 'bad' };
+      }
+      s.designs = s.designs.filter((d) => d.id !== action.id);
+      return { message: `${design.name} retired.`, tone: 'neutral' };
+    }
+
     case 'buyBusiness': {
+      // A design overrides the category with its own archetype, so the caller
+      // cannot open a design's business under the wrong economy by passing a
+      // mismatched category.
+      const design = action.designId ? designById(s, action.designId) : undefined;
+      if (action.designId && !design) {
+        return { message: 'That design is no longer in your catalogue.', tone: 'bad' };
+      }
+      if (design) return openFromDesign(s, design);
+
       const def = CATEGORY_BY_ID[action.category];
       const shortlist = offersFor(s, action.category);
       // No offer named means "just open one" — used by the headless tools and
@@ -150,7 +184,7 @@ export function apply(s: GameState, action: Action): ActionResult {
       const cost = hireStaffCost(s, b);
       if (s.cash < cost) return { message: 'Not enough cash to cover the signing cost.', tone: 'bad' };
       s.cash -= cost;
-      const member = hire(b);
+      const member = hire(b, designById(s, b.designId)?.staffRoles);
       return { message: `${member.name} starts ${member.role}.`, tone: 'good' };
     }
 
@@ -451,6 +485,8 @@ export function apply(s: GameState, action: Action): ActionResult {
         legacyPoints: s.legacyPoints + points,
         legacyUpgrades: s.legacyUpgrades,
         stats,
+        // The empire goes; the ideas stay.
+        designs: s.designs,
       };
       Object.assign(s, createInitialState(carry));
       setFlash(s, `IPO COMPLETE — +${points} Legacy Points`, 'epic', 'legendary');
@@ -467,6 +503,8 @@ export function apply(s: GameState, action: Action): ActionResult {
         legacyPoints: s.legacyPoints + points,
         legacyUpgrades: s.legacyUpgrades,
         stats,
+        // The empire goes; the ideas stay.
+        designs: s.designs,
       };
       Object.assign(s, createInitialState(carry));
       addLog(s, `Chapter 11. You keep the scars and ${points} Legacy Points. Start again.`, 'bad');
@@ -497,3 +535,33 @@ export function apply(s: GameState, action: Action): ActionResult {
 }
 
 
+/**
+ * Opens a business from a design. Priced as its archetype, because that is what
+ * it economically is, and stamped with the design's identity, traits and deck.
+ */
+function openFromDesign(s: GameState, design: CustomDesign): ActionResult {
+  const def = CATEGORY_BY_ID[design.archetype];
+  // Trait price multipliers apply exactly as they do on the premises
+  // shortlist, so a design that asked for a good trait pays for it.
+  const cost = businessCost(s, def) * traitPriceMultiplier(design.traits);
+  if (s.cash < cost) return { message: 'Not enough cash.', tone: 'bad' };
+  s.cash -= cost;
+
+  const names = s.businesses.map((b) => b.name);
+  const b = createBusiness(design.archetype, names, {
+    name: design.name,
+    traits: design.traits,
+    designId: design.id,
+  });
+  s.businesses.push(b);
+  s.stats.businessesFounded += 1;
+
+  design.timesOpened += 1;
+  // Counted once per run, so "on run 4" means four runs and not four shops.
+  if (!s.businesses.some((x) => x.designId === design.id && x.id !== b.id)) {
+    design.runsOpened += 1;
+  }
+
+  addLog(s, `Opened ${b.name} for ${money(cost)}. ${design.tagline}`, 'good');
+  return { message: `${b.name} is open for business.`, tone: 'good' };
+}

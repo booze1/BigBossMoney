@@ -51,6 +51,12 @@ export interface Business {
   /** Property id backing this business, or null if renting. */
   propertyId: string | null;
   /**
+   * Set when this business was opened from a design the player invented. Its
+   * `category` still drives every financial selector; this only adds the
+   * design's identity, staff roles and private card deck on top.
+   */
+  designId: string | null;
+  /**
    * Trait ids from the premises this was bought as. These are what make two
    * businesses of the same category and level different from each other, and
    * some of them can be cleared or acquired later through events.
@@ -76,6 +82,41 @@ export interface Business {
    * no matter how large the deck is.
    */
   recentCards: string[];
+}
+
+/**
+ * A business the player invented, described in their own words and turned into
+ * game content. It holds no economic numbers of its own — `archetype` names one
+ * of the six measured categories and the engine prices it as that — so a design
+ * can be anything at all without reaching the balance. See engine/custom.ts.
+ *
+ * Designs live in a catalogue that survives prestige. The businesses opened
+ * from them do not: an IPO still takes the empire, it just leaves you the
+ * ideas and what they have been through.
+ */
+export interface CustomDesign {
+  id: string;
+  name: string;
+  /** One line under the name — what the place actually is. */
+  tagline: string;
+  /** A short paragraph, shown when choosing what to open. */
+  blurb: string;
+  /** Which of the six measured economies this behaves as. */
+  archetype: CategoryId;
+  /** Trait ids from the priced list. Never invented. */
+  traits: string[];
+  /** Job titles for this business's staff, in place of the category defaults. */
+  staffRoles: string[];
+  icon: string;
+  /** This design's own event deck, drawable only at its own businesses. */
+  cards: EventCardDef[];
+  /** What the player typed to get this, kept so a refine has the thread. */
+  prompt: string;
+  createdAt: number;
+  /** History across runs — the reason the catalogue persists. */
+  runsOpened: number;
+  timesOpened: number;
+  bestNetWorth: number;
 }
 
 /** One premises on the shortlist for a category you have not bought yet. */
@@ -350,6 +391,11 @@ export interface GameState {
   debt: Loan[];
 
   businesses: Business[];
+  /**
+   * Everything the player has ever designed. Carried through an IPO or a
+   * bankruptcy, unlike the businesses themselves.
+   */
+  designs: CustomDesign[];
   /**
    * The premises shortlist per category, held in the save so backing out of a
    * purchase cannot reroll it. Cleared for a category when you buy there.

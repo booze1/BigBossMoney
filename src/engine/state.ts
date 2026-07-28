@@ -1,4 +1,4 @@
-import type { Business, GameState, Stats } from './types';
+import type { Business, CustomDesign, GameState, Stats } from './types';
 import { TUNING } from './content/tuning';
 import { CATEGORY_BY_ID } from './content/businesses';
 import { createAssets } from './content/markets';
@@ -25,7 +25,7 @@ export function createBusiness(
   category: Business['category'],
   existingNames: string[],
   /** Set when opening from a premises shortlist, which names and shapes it. */
-  from?: { name: string; traits: string[] },
+  from?: { name: string; traits: string[]; designId?: string },
 ): Business {
   const def = CATEGORY_BY_ID[category];
   const unused = def.names.filter((n) => !existingNames.includes(n));
@@ -37,6 +37,7 @@ export function createBusiness(
     category,
     name,
     traits: from?.traits ?? [],
+    designId: from?.designId ?? null,
     level: 1,
     roster: [],
     manager: 'none',
@@ -55,6 +56,12 @@ export interface CarryOver {
   legacyPoints: number;
   legacyUpgrades: Record<string, number>;
   stats: Stats;
+  /**
+   * The design catalogue. Survives a reset because the empire is what prestige
+   * takes; the ideas are what you keep, and their history across runs is what
+   * makes reopening one mean something.
+   */
+  designs: CustomDesign[];
 }
 
 /**
@@ -85,6 +92,9 @@ export function createInitialState(carry?: CarryOver): GameState {
     debt: [],
 
     businesses: [firstBusiness],
+    // Copied rather than shared: prestige replaces the state object wholesale
+    // and the old array must not stay reachable through the new one.
+    designs: (carry?.designs ?? []).map((d) => ({ ...d })),
     premises: {},
     assets: createAssets(),
     holdings: [],
