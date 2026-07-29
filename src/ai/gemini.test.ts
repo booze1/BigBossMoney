@@ -9,6 +9,7 @@ import {
   setApiKey,
   setModel,
 } from './gemini';
+import { listModels } from './client';
 import { validateDesign } from '../engine/custom';
 import { exportSave } from '../engine/save';
 import { createInitialState } from '../engine/state';
@@ -254,5 +255,69 @@ describe('gemini output is never trusted', () => {
     const sent = JSON.stringify(body.contents);
     expect(sent).toContain('make it seedier');
     expect(sent).toContain('The Third Chair');
+  });
+});
+
+describe('asking a key what it can run', () => {
+  const modelList = (models: unknown[]) => reply({ models });
+
+  it('keeps only models that can do this job, newest first', async () => {
+    setApiKey('k');
+    vi.stubGlobal('fetch', async () =>
+      modelList([
+        { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', outputTokenLimit: 65536, supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.6-flash', displayName: 'Gemini 3.6 Flash', outputTokenLimit: 65536, supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3-flash-preview', displayName: 'Preview', outputTokenLimit: 65536, supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3-flash', displayName: 'Gemini 3 Flash', outputTokenLimit: 65536, supportedGenerationMethods: ['generateContent'] },
+        // None of these can write a business.
+        { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] },
+        { name: 'models/imagen-4', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-tiny', outputTokenLimit: 256, supportedGenerationMethods: ['generateContent'] },
+      ]),
+    );
+
+    const found = await listModels();
+    expect(found.map((m) => m.id)).toEqual([
+      'gemini-3.6-flash',
+      'gemini-3-flash',
+      'gemini-3-flash-preview',
+      'gemini-2.5-flash',
+    ]);
+  });
+
+  it('sends the key as a header, and asks for a full page', async () => {
+    setApiKey('AIzaSECRET');
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => modelList([
+      { name: 'models/gemini-3-flash', outputTokenLimit: 65536, supportedGenerationMethods: ['generateContent'] },
+    ]));
+    vi.stubGlobal('fetch', fetchMock);
+    await listModels();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).not.toContain('AIzaSECRET');
+    expect(url).toContain('pageSize=');
+    expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe('AIzaSECRET');
+  });
+
+  it('says so plainly when there is nothing usable, or no key', async () => {
+    setApiKey(null);
+    await expect(listModels()).rejects.toMatchObject({ kind: 'no-key' });
+
+    setApiKey('k');
+    vi.stubGlobal('fetch', async () => modelList([{ name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] }]));
+    await expect(listModels()).rejects.toMatchObject({ kind: 'model' });
+
+    vi.stubGlobal('fetch', async () => reply({ error: {} }, 403));
+    await expect(listModels()).rejects.toMatchObject({ kind: 'rejected' });
+
+    vi.stubGlobal('fetch', async () => { throw new TypeError('offline'); });
+    await expect(listModels()).rejects.toMatchObject({ kind: 'network' });
+  });
+
+  it('defaults to a model that is free-tier eligible', () => {
+    // Pro models left the free tier in April 2026, and this game asks players
+    // to bring their own key — so the default has to be one a free key can run.
+    expect(DEFAULT_MODEL).toContain('flash');
+    expect(DEFAULT_MODEL).not.toContain('pro');
   });
 });

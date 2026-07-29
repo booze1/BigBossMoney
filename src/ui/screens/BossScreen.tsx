@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DEFAULT_MODEL, generateDesign, getApiKey, getModel, setApiKey, setModel } from '../../ai/gemini';
+import { listModels, type ModelOption } from '../../ai/client';
 import { useGame } from '../../store';
 import { TIERS, TUNING } from '../../engine/content/tuning';
 import { LEGACY_UPGRADES } from '../../engine/content/luck';
@@ -517,24 +518,22 @@ function GeminiSettings() {
   const [key, setKey] = useState(getApiKey() ?? '');
   const [model, setModelValue] = useState(getModel());
   const [status, setStatus] = useState<string | null>(null);
-  const [testing, setTesting] = useState(false);
+  const [busy, setBusy] = useState<'test' | 'models' | null>(null);
+  const [models, setModels] = useState<ModelOption[] | null>(null);
 
   const saved = getApiKey();
 
-  async function test() {
-    setTesting(true);
+  async function withKey(job: () => Promise<void>, which: 'test' | 'models') {
+    setBusy(which);
     setStatus(null);
     setApiKey(key);
     setModel(model);
     try {
-      // A real generation, because anything cheaper would not prove the key
-      // works for the thing the player is going to do with it.
-      const design = await generateDesign('a corner shop that sells only umbrellas');
-      setStatus(`Working — it came back with "${design.name}".`);
+      await job();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
-      setTesting(false);
+      setBusy(null);
     }
   }
 
@@ -545,9 +544,19 @@ function GeminiSettings() {
         {saved && <span className="chip chip-pos">Key set</span>}
       </div>
       <div className="hint" style={{ marginBottom: 10 }}>
-        Describing a business and having it written into the game uses Google&apos;s Gemini. This app
-        has no server, so it uses your key rather than one hidden in the page. Free from Google AI
-        Studio. It stays on this device and is never included when you export your save.
+        Designing a business, and the press that writes about your empire, both use Google&apos;s
+        Gemini. This game has no server, so it uses your key rather than one hidden in the page. It
+        stays on this device and is never included when you export your save. Everything else works
+        without it.
+      </div>
+
+      <div className="hint" style={{ marginBottom: 10 }}>
+        <span style={{ fontWeight: 560 }}>Getting one, free:</span> go to{' '}
+        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+          aistudio.google.com/apikey
+        </a>
+        , sign in with a Google account, press <em>Create API key</em>, and paste it below. No card
+        needed. The free tier is far more than this game uses.
       </div>
 
       <input
@@ -560,27 +569,16 @@ function GeminiSettings() {
         onChange={(e) => setKey(e.target.value)}
       />
 
-      <input
-        className="textinput"
-        style={{ marginTop: 8 }}
-        spellCheck={false}
-        placeholder={DEFAULT_MODEL}
-        value={model}
-        onChange={(e) => setModelValue(e.target.value)}
-      />
-      <div className="hint" style={{ marginTop: 4 }}>
-        Model name. Leave as {DEFAULT_MODEL} unless your key does not have it.
-      </div>
-
       <div className="btn-group" style={{ marginTop: 11 }}>
         <button
           className="btn btn-ghost btn-sm"
-          disabled={testing || (!key && !saved)}
+          disabled={busy !== null || (!key && !saved)}
           onClick={() => {
             setApiKey(null);
             setModel(null);
             setKey('');
             setModelValue(DEFAULT_MODEL);
+            setModels(null);
             setStatus('Key removed from this device.');
           }}
         >
@@ -588,12 +586,74 @@ function GeminiSettings() {
         </button>
         <button
           className={`btn btn-sm ${key.trim() ? 'btn-primary' : ''}`}
-          disabled={testing || !key.trim()}
-          onClick={test}
+          disabled={busy !== null || !key.trim()}
+          onClick={() =>
+            withKey(async () => {
+              // A real generation, because anything cheaper would not test the
+              // thing the player is about to do with it.
+              const design = await generateDesign('a corner shop that sells only umbrellas');
+              setStatus(`Working — it came back with "${design.name}".`);
+            }, 'test')
+          }
         >
-          {testing ? 'Checking…' : 'Save and test'}
+          {busy === 'test' ? 'Checking…' : 'Save and test'}
         </button>
       </div>
+
+      <div className="hint" style={{ marginTop: 14, marginBottom: 6 }}>
+        <span style={{ fontWeight: 560 }}>Model.</span> Which models exist changes faster than this
+        game can keep up with, and what a key is entitled to depends on its billing — so rather than
+        guess, ask yours.
+      </div>
+
+      <input
+        className="textinput"
+        spellCheck={false}
+        placeholder={DEFAULT_MODEL}
+        value={model}
+        onChange={(e) => setModelValue(e.target.value)}
+      />
+
+      <button
+        className="btn btn-ghost btn-sm btn-block"
+        style={{ marginTop: 8 }}
+        disabled={busy !== null || !key.trim()}
+        onClick={() =>
+          withKey(async () => {
+            const found = await listModels();
+            setModels(found);
+            setStatus(`${found.length} models available on this key.`);
+          }, 'models')
+        }
+      >
+        {busy === 'models' ? 'Asking…' : 'Show what my key can run'}
+      </button>
+
+      {models && (
+        <div className="stack" style={{ marginTop: 10 }}>
+          {models.slice(0, 12).map((m) => (
+            <button
+              key={m.id}
+              className={`listrow listrow-tap ${m.id === model ? 'active' : ''}`}
+              style={{ border: m.id === model ? '1px solid var(--pos)' : undefined, borderRadius: 8 }}
+              onClick={() => {
+                setModelValue(m.id);
+                setModel(m.id);
+                setStatus(`Using ${m.label}.`);
+              }}
+            >
+              <div className="grow">
+                <div style={{ fontWeight: 560, fontSize: 13 }}>{m.label}</div>
+                <div className="faint" style={{ fontSize: 11 }}>
+                  {m.id}
+                  {m.outputLimit > 0 && ` · ${Math.round(m.outputLimit / 1000)}k output`}
+                </div>
+              </div>
+              {m.id === model && <span className="chip chip-pos">In use</span>}
+            </button>
+          ))}
+        </div>
+      )}
 
       {status && <div className="hint" style={{ marginTop: 10 }}>{status}</div>}
     </Card>

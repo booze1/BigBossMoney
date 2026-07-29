@@ -12,6 +12,48 @@ for 390px. It installs to your home screen and keeps working with no signal.
 Every push to the default branch redeploys via `.github/workflows/deploy-pages.yml`,
 gated on the test suite.
 
+## Turning on the AI features
+
+Designing your own businesses, and the press that writes about your empire, both
+call Google's Gemini. Everything else in the game works without any of this.
+
+There is no server behind this game, so there is nowhere to hide a shared API
+key — anything in the bundle can be read out of it by anyone. You use your own.
+It is stored in your browser on your device only, is sent nowhere except Google,
+and is deliberately excluded from the save export, so a save code you pass to a
+friend can never carry it.
+
+1. Go to **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)**.
+2. Sign in with any Google account.
+3. Press **Create API key**. If it asks for a project, let it make one.
+4. Copy the key — it starts `AIza`.
+5. In the game, open the **☰** menu, go to **Settings**, and paste it into the
+   Gemini box.
+6. Press **Save and test**. It designs a throwaway business to prove the key
+   works end to end, and tells you what came back.
+
+No credit card is needed for the free tier, and this game uses very little of
+it: the press is one call roughly every fifteen minutes, and designing a
+business is one call each time you press the button.
+
+### Which model
+
+Press **Show what my key can run** in Settings. It asks your key directly and
+lists what it is actually entitled to, newest first, filtered to models that can
+do this job. Tap one to use it.
+
+That button exists instead of a recommendation on purpose. Model availability
+moves faster than this repository does, and what any given key can reach depends
+on its billing — a hard-coded suggestion here would be wrong within months. The
+default is the newest model that could be confirmed free-tier eligible at the
+time of writing; anything the picker offers will work.
+
+For what it is worth, the two jobs want different things. The press is short and
+frequent, and a Flash-class model is plenty. Designing a business is one long
+structured reply — a dozen event cards with nested choices — so it benefits from
+the largest output limit you have available, which the picker shows next to each
+model.
+
 ## Running it locally
 
 ```bash

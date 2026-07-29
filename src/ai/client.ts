@@ -15,8 +15,14 @@
 const KEY_STORAGE = 'bigbossmoney.gemini.key';
 const MODEL_STORAGE = 'bigbossmoney.gemini.model';
 
-/** Fast and cheap, and on the free tier. Overridable in Settings. */
-export const DEFAULT_MODEL = 'gemini-2.5-flash';
+/**
+ * The newest model that is confirmed free-tier eligible, which is what matters
+ * for a game that asks players to bring their own key. Pro models left the free
+ * tier in April 2026, and whether the very newest Flash releases are free is
+ * genuinely unclear from outside — so rather than guess, Settings can ask the
+ * key what it actually has (see listModels) and the player picks.
+ */
+export const DEFAULT_MODEL = 'gemini-3-flash';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const TIMEOUT_MS = 45_000;
@@ -72,8 +78,6 @@ export class AiError extends Error {
     super(message);
   }
 }
-
-// ------------------------------------------------------------------ prompt
 
 // -------------------------------------------------------------------- call
 
@@ -182,3 +186,84 @@ maxOutputTokens: 8192,
   }
 }
 
+// ------------------------------------------------------------------ models
+
+export interface ModelOption {
+  id: string;
+  label: string;
+  /** Google's own one-line description, when it gives one. */
+  blurb: string;
+  /** Output token ceiling, which is what limits how many cards fit in a reply. */
+  outputLimit: number;
+}
+
+/**
+ * Asks the key what it can actually run.
+ *
+ * Hard-coding a recommendation ages badly: the list moves faster than any
+ * default, and what a given key is entitled to varies with billing. So the game
+ * asks instead of assuming. Filtered to models that support generateContent,
+ * since that is the only thing this app does with one, and sorted newest-looking
+ * first so the useful ones are at the top.
+ */
+export async function listModels(signal?: AbortSignal): Promise<ModelOption[]> {
+  const key = getApiKey();
+  if (!key) throw new AiError('No Gemini key set. Add one first.', 'no-key');
+
+  let response: Response;
+  try {
+    response = await fetch(`${ENDPOINT}?pageSize=200`, {
+      headers: { 'x-goog-api-key': key },
+      signal,
+    });
+  } catch {
+    throw new AiError('Could not reach Gemini. Check your connection.', 'network');
+  }
+
+  if (!response.ok) {
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      throw new AiError('That key was refused. Check it above.', 'rejected');
+    }
+    throw new AiError(`Gemini returned an error (${response.status}).`, 'network');
+  }
+
+  const payload = (await response.json().catch(() => null)) as {
+    models?: {
+      name?: string;
+      displayName?: string;
+      description?: string;
+      outputTokenLimit?: number;
+      supportedGenerationMethods?: string[];
+    }[];
+  } | null;
+
+  const models = (payload?.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+    .map((m) => {
+      const id = (m.name ?? '').replace(/^models\//, '');
+      return {
+        id,
+        label: m.displayName || id,
+        blurb: (m.description ?? '').slice(0, 110),
+        outputLimit: m.outputTokenLimit ?? 0,
+      };
+    })
+    // Embedding and answering models cannot do this job at all.
+    .filter((m) => m.id && !/embedding|aqa|imagen|veo|tts|image|native-audio/.test(m.id))
+    // A design needs room for a dozen cards; anything short cannot hold one.
+    .filter((m) => m.outputLimit === 0 || m.outputLimit >= 4096);
+
+  if (models.length === 0) throw new AiError('That key has no models this game can use.', 'model');
+
+  // Newest first, by the version number in the id, with previews after stable
+  // releases of the same version.
+  const version = (id: string) => {
+    const match = id.match(/gemini-(\d+)(?:\.(\d+))?/);
+    return match ? Number(match[1]) * 100 + Number(match[2] ?? 0) : 0;
+  };
+  return models.sort((a, b) => {
+    const byVersion = version(b.id) - version(a.id);
+    if (byVersion !== 0) return byVersion;
+    return Number(a.id.includes('preview')) - Number(b.id.includes('preview'));
+  });
+}
