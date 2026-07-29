@@ -363,6 +363,23 @@ export function maxStaff(b: Business): number {
 
 export const headcount = (b: Business): number => b.roster.length;
 
+// ------------------------------------------------------------ own designs
+
+/** Whether the player has got far enough to be handed a blank page. */
+export function designsUnlocked(s: GameState): boolean {
+  return netWorth(s) >= TUNING.designUnlockAt;
+}
+
+/**
+ * What filing the next design costs. Escalates with the size of the catalogue,
+ * so designs stay decisions rather than accumulating for free, and rides the
+ * same cost ramp as every other purchase so it keeps pace with the empire.
+ */
+export function designFee(s: GameState): number {
+  const escalation = 1 + s.designs.length * TUNING.designFeeGrowth;
+  return TUNING.designBaseFee * escalation * costMultiplier(s);
+}
+
 /** Years of service, against the game's compressed calendar. */
 export function serviceYears(member: StaffMember, now = Date.now()): number {
   return tenureYears(member.hiredAt, now, TUNING.secondsPerGameYear);

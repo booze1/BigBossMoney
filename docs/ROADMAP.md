@@ -426,3 +426,49 @@ trait tool ran into, not a regression. Suite 103 to 118.
 People you can talk to — the third of the three. Plus the older list: a luck
 pity counter, dividends and portfolio history, property renovation, a luxury
 collection view, achievements, onboarding, audio.
+
+## Phase 5e — the audit that found why "Build it" did nothing
+
+Reported: pressing Build did nothing, and the whole feature had no price or
+structure around it. Both were real. Neither could be reproduced by the existing
+tests, because every browser test intercepted the Gemini endpoint and returned a
+canned reply — the request was never shown to Google.
+
+**The bug.** The design schema used `$ref`/`$defs` under `responseSchema`, which
+is an OpenAPI subset whose reference support is inconsistent; Google's own
+guidance is to use `responseJsonSchema` when a schema needs references. Proved
+against the live API by posting both bodies with no key at all:
+
+    old body -> 400  Unknown name "$ref" at 'generation_config.response_schema…'
+    new body -> 400  API key not valid
+
+The schema was rejected *before authentication was even attempted*. Every press
+of Build returned 400 — and the client reported 400 as "That key was refused",
+sending players to check a key that was fine. Fixed by inlining the outcome
+schema, and by splitting 400 into "bad key" and "bad request" on what Google
+actually says rather than on the status code alone.
+
+**Three more defects found in the same pass:**
+
+- `maxOutputTokens: 8192` with models that think before answering. Reasoning
+  tokens count against that ceiling, so a long structured reply can spend the
+  whole budget deliberating and return `MAX_TOKENS` with an empty body — which
+  also reads as the button doing nothing. The cap is gone entirely; each model
+  uses its own maximum. The ask also dropped from up to sixteen cards to eight,
+  which is plenty given a design's deck is drawn *alongside* its archetype's.
+- A 45-second timeout, too short for a thinking model writing a dozen cards.
+  Now 90.
+- No way for a player to report what went wrong. Settings now shows the last
+  failure with Google's own message, copyable.
+
+**The structure.** Designing was free and unlimited, which made it a toy bolted
+to the side of an economy. Incorporating now costs `designBaseFee` — one
+standard retail store — escalating 80% per company already registered and
+riding the same net-worth cost ramp as every other purchase, gated behind
+$25,000 net worth. Drafting and refining stay free, because nobody should pay
+for something they have not seen, and editing something already filed is free
+too, or improving a design would cost more than hoarding a bad one.
+
+Writing the tests caught a third bug — in the tests. The gate is on net worth,
+and cash counts toward net worth, so the "still locked" case was setting cash
+high enough to unlock the very thing it meant to keep locked.

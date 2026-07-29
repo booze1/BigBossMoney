@@ -88,6 +88,13 @@ and it becomes a real one: identity, premises traits, the job titles its staff
 hold, and its own deck of event cards written around whatever you said. You can
 argue with the result in plain language ("make it seedier") before keeping it.
 
+Founding your own company unlocks at $25,000 net worth — far enough in that you
+have met the six real trades first. Drafting and arguing with a design are free;
+**incorporating one costs**, starting at about the price of a shop and rising
+with each company already on your register, so a catalogue stays a handful you
+believed in rather than everything you ever typed. Opening a branch afterwards
+costs whatever that trade costs anyone.
+
 This is the one thing that needs a key. The game has no server, so there is
 nowhere to hide a shared one; you paste your own free Gemini key into Settings
 and it stays on your device — never in the save, which is exportable as a text

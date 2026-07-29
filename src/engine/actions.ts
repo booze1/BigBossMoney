@@ -15,6 +15,8 @@ import {
   marketBoostMultiplier,
   maxStaff,
   hustlePayout,
+  designFee,
+  designsUnlocked,
   netWorth,
   projectedLegacyPoints,
   serviceYears,
@@ -102,9 +104,25 @@ export function apply(s: GameState, action: Action): ActionResult {
     // catalogue. Opening a business from it is a separate, paid decision.
     case 'saveDesign': {
       const existing = s.designs.findIndex((d) => d.id === action.design.id);
-      if (existing >= 0) s.designs[existing] = action.design;
-      else s.designs.push(action.design);
-      return { message: `${action.design.name} filed.`, tone: 'good' };
+      // Editing something already filed is free. You paid when you filed it,
+      // and charging again would make improving a design worse than hoarding
+      // a bad one.
+      if (existing >= 0) {
+        s.designs[existing] = action.design;
+        return { message: `${action.design.name} updated.`, tone: 'good' };
+      }
+
+      if (!designsUnlocked(s)) {
+        return { message: 'Build the business up a bit first.', tone: 'bad' };
+      }
+      const fee = designFee(s);
+      if (s.cash < fee) {
+        return { message: `Incorporating costs ${money(fee)}.`, tone: 'bad' };
+      }
+      s.cash -= fee;
+      s.designs.push(action.design);
+      addLog(s, `${action.design.name} incorporated for ${money(fee)}.`, 'good');
+      return { message: `${action.design.name} is on the register.`, tone: 'good' };
     }
 
     case 'deleteDesign': {

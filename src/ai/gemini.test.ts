@@ -9,7 +9,7 @@ import {
   setApiKey,
   setModel,
 } from './gemini';
-import { listModels } from './client';
+import { getLastFailure, listModels } from './client';
 import { validateDesign } from '../engine/custom';
 import { exportSave } from '../engine/save';
 import { createInitialState } from '../engine/state';
@@ -145,7 +145,20 @@ describe('gemini request', () => {
 describe('gemini failure modes', () => {
   const cases: [string, () => void, AiError['kind']][] = [
     ['no key at all', () => setApiKey(null), 'no-key'],
-    ['a refused key', () => vi.stubGlobal('fetch', async () => reply({ error: {} }, 400)), 'rejected'],
+    [
+      'a refused key',
+      () => vi.stubGlobal('fetch', async () =>
+        reply({ error: { status: 'INVALID_ARGUMENT', message: 'API key not valid. Please pass a valid API key.' } }, 400)),
+      'rejected',
+    ],
+    [
+      'a request Gemini would not accept',
+      // A bare 400 used to be reported as a bad key, which sent players off to
+      // check something that was fine while the real fault was in the request.
+      () => vi.stubGlobal('fetch', async () =>
+        reply({ error: { status: 'INVALID_ARGUMENT', message: 'Invalid JSON payload received. Unknown name "$defs".' } }, 400)),
+      'bad-request',
+    ],
     ['a forbidden key', () => vi.stubGlobal('fetch', async () => reply({ error: {} }, 403)), 'rejected'],
     ['an unknown model', () => vi.stubGlobal('fetch', async () => reply({ error: {} }, 404)), 'model'],
     ['rate limiting', () => vi.stubGlobal('fetch', async () => reply({ error: {} }, 429)), 'rate-limit'],
@@ -319,5 +332,57 @@ describe('asking a key what it can run', () => {
     // to bring their own key — so the default has to be one a free key can run.
     expect(DEFAULT_MODEL).toContain('flash');
     expect(DEFAULT_MODEL).not.toContain('pro');
+  });
+});
+
+describe('failures are diagnosable', () => {
+  it('keeps what Google actually said, alongside what the player is told', async () => {
+    setApiKey('k');
+    vi.stubGlobal('fetch', async () =>
+      reply({ error: { status: 'INVALID_ARGUMENT', message: 'Unknown name "$defs" at generation_config.response_schema' } }, 400));
+
+    const err = await generateDesign('a barbershop').catch((e) => e);
+    // The player gets something sayable...
+    expect(err.message).toContain('Gemini rejected the request');
+    // ...and the detail is kept for the diagnostics panel, verbatim.
+    expect(err.detail).toContain('$defs');
+    expect(getLastFailure()?.detail).toContain('$defs');
+    expect(getLastFailure()?.kind).toBe('bad-request');
+  });
+
+  it('names the thinking-budget failure rather than shrugging', async () => {
+    setApiKey('k');
+    // A reply that spent its whole budget reasoning and returned no text: the
+    // exact shape that used to look like the button doing nothing.
+    vi.stubGlobal('fetch', async () => reply({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [] } }] }));
+
+    const err = await generateDesign('a barbershop').catch((e) => e);
+    expect(err.kind).toBe('bad-reply');
+    expect(err.message).toMatch(/ran out of room/);
+    expect(err.detail).toContain('MAX_TOKENS');
+  });
+
+  it('never caps the output budget, because thinking counts against it', async () => {
+    setApiKey('k');
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => asText(payload()));
+    vi.stubGlobal('fetch', fetchMock);
+    await generateDesign('a barbershop');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.generationConfig.maxOutputTokens).toBeUndefined();
+  });
+
+  it('sends a schema with no $ref or $defs in it', () => {
+    // responseSchema is an OpenAPI subset whose $ref support is inconsistent,
+    // and a rejected schema returns a bare 400 that reads like a bad key.
+    setApiKey('k');
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => asText(payload()));
+    vi.stubGlobal('fetch', fetchMock);
+    return generateDesign('a barbershop').then(() => {
+      const body = fetchMock.mock.calls[0][1].body as string;
+      const schema = JSON.stringify(JSON.parse(body).generationConfig.responseSchema);
+      expect(schema).not.toContain('$ref');
+      expect(schema).not.toContain('$defs');
+    });
   });
 });

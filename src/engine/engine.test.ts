@@ -23,6 +23,8 @@ import {
   businessFinancials,
   hireStaffCost,
   isCategoryUnlocked,
+  designFee,
+  designsUnlocked,
   netWorth,
   offlineCapSeconds,
   maxStaff,
@@ -1236,6 +1238,7 @@ describe('custom business designs', () => {
 
   it('survives a save round-trip with its deck intact', () => {
     const s = createInitialState();
+    s.cash = 1e9;
     const design = validateDesign(goodDesign());
     apply(s, { type: 'saveDesign', design });
 
@@ -1423,5 +1426,90 @@ describe('press scheduling', () => {
     // free-tier key from a fast-changing empire.
     s.press.lastFetchAt = now - 1000;
     expect(shouldRefreshPress(s, now)).toBe(false);
+  });
+});
+
+describe('what a design costs', () => {
+  const design = () => validateDesign({
+    name: 'The Third Chair',
+    tagline: "Gents' grooming",
+    blurb: 'Two barbers and a queue that never needs a haircut.',
+    archetype: 'retail',
+    traits: [],
+    staffRoles: ['on the chairs', 'on the door'],
+    icon: '💈',
+    cards: Array.from({ length: 4 }, () => ({
+      title: 'A situation', body: 'Something needs deciding.',
+      choices: [
+        { label: 'Pay', hint: 'Costs', odds: 1, good: { text: 'ok', cashSeconds: -80 }, bad: { text: 'ok', cashSeconds: -80 } },
+        { label: 'Risk', hint: 'Might pay', odds: 0.6, good: { text: 'ok', cashSeconds: 140 }, bad: { text: 'ok', cashSeconds: -160 } },
+      ],
+    })),
+  });
+
+  it('will not let you incorporate before you have run anything', () => {
+    const s = createInitialState();
+    expect(designsUnlocked(s)).toBe(false);
+
+    // The gate is on net worth, and cash counts toward net worth, so this has
+    // to land in the window between "can afford the fee" and "still locked" or
+    // it proves nothing. Derived rather than guessed, since the starting
+    // business is worth something too.
+    s.cash = 0;
+    s.cash = TUNING.designUnlockAt * 0.9 - netWorth(s);
+    expect(designsUnlocked(s)).toBe(false);
+    expect(s.cash).toBeGreaterThan(designFee(s));
+
+    const before = s.cash;
+    apply(s, { type: 'saveDesign', design: design() });
+    expect(s.designs).toHaveLength(0);
+    expect(s.cash).toBe(before);
+  });
+
+  it('charges the fee, and each company costs more than the last', () => {
+    const s = createInitialState();
+    s.cash = TUNING.designUnlockAt * 4;
+    expect(designsUnlocked(s)).toBe(true);
+
+    const first = designFee(s);
+    const before = s.cash;
+    apply(s, { type: 'saveDesign', design: design() });
+    expect(s.designs).toHaveLength(1);
+    expect(before - s.cash).toBeCloseTo(first, 4);
+
+    // Second one is dearer, which is what keeps a catalogue a set of decisions.
+    expect(designFee(s)).toBeGreaterThan(first);
+  });
+
+  it('refuses rather than going negative when the fee is out of reach', () => {
+    const s = createInitialState();
+    s.cash = TUNING.designUnlockAt * 2;
+    const fee = designFee(s);
+    s.cash = fee - 1;
+    apply(s, { type: 'saveDesign', design: design() });
+    expect(s.designs).toHaveLength(0);
+    expect(s.cash).toBeGreaterThanOrEqual(0);
+  });
+
+  it('does not charge again for editing something already filed', () => {
+    const s = createInitialState();
+    s.cash = TUNING.designUnlockAt * 4;
+    const d = design();
+    apply(s, { type: 'saveDesign', design: d });
+    const after = s.cash;
+
+    // A refine returns the same design with the same id.
+    apply(s, { type: 'saveDesign', design: { ...d, tagline: 'Seedier now' } });
+    expect(s.cash).toBe(after);
+    expect(s.designs).toHaveLength(1);
+    expect(s.designs[0].tagline).toBe('Seedier now');
+  });
+
+  it('rides the same cost ramp as everything else', () => {
+    const small = createInitialState();
+    small.cash = TUNING.designUnlockAt * 2;
+    const big = createInitialState();
+    big.cash = 500_000_000;
+    expect(designFee(big)).toBeGreaterThan(designFee(small));
   });
 });

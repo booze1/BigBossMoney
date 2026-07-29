@@ -116,6 +116,27 @@ export const TUNING = {
   severanceBaseSeconds: 240,
   severancePerYearSeconds: 90,
   severanceMaxSeconds: 1_500,
+
+  /**
+   * Incorporating a business you designed yourself.
+   *
+   * Drafting and arguing with a design are free — nobody should pay for
+   * something they have not seen — but filing one costs, and each one after it
+   * costs more. That escalation is the structure: a catalogue is meant to be a
+   * few companies you believed in, not a scrapbook of everything you typed.
+   *
+   * The base is one standard retail store, so the first design reads as "about
+   * the price of a shop", and the whole thing rides the same net-worth cost
+   * ramp as every other purchase.
+   */
+  designBaseFee: 5_000,
+  designFeeGrowth: 0.8,
+  /**
+   * Net worth before the option appears at all. Low enough to reach in a few
+   * minutes, high enough that a new player meets the six real categories before
+   * being handed a blank page.
+   */
+  designUnlockAt: 25_000,
   /** Rent paid when a business has no owned commercial property behind it. */
   rentRatio: 0.12,
   /** Margin bonus for operating out of property you own. */

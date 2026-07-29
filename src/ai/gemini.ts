@@ -27,6 +27,15 @@ export {
  * invents is one the validator will throw away. Listing the traits and
  * archetypes inline costs a few hundred tokens and saves most of the failures.
  */
+/**
+ * How many cards to ask for. The validator accepts up to sixteen, but asking
+ * for the maximum makes a long reply that thinking models frequently run out of
+ * room to finish — and a truncated reply is a failed design. Eight is plenty:
+ * a design's deck is drawn alongside its archetype's authored cards, not
+ * instead of them.
+ */
+const CARDS_REQUESTED = 8;
+
 function systemPrompt(): string {
   const archetypes = CATEGORIES.map(
     (c) => `  ${c.id} — ${c.name}: ${c.blurb} (margin ${Math.round((1 - c.upkeepRatio) * 100)}%)`,
@@ -44,7 +53,7 @@ ${archetypes}
 TRAITS — pick 0 to ${DESIGN_LIMITS.maxTraits} from this list, by id, only if they genuinely fit. Do not invent ids; invented ones are discarded:
 ${traits}
 
-CARDS — write ${DESIGN_LIMITS.minCards} to ${DESIGN_LIMITS.maxCards} event cards. Each is a specific situation at THIS business that needs a decision, with 2 choices. Rules:
+CARDS — write ${CARDS_REQUESTED} event cards. Each is a specific situation at THIS business that needs a decision, with 2 choices. Rules:
 - One choice should be safe and usually costly; one should be a gamble with stated odds.
 - odds is the chance the good outcome fires, 0.15 to 1. Use 1 for a choice that always works.
 - cashSeconds is the payout in seconds of this business's income: -600 to 600. A routine annoyance is 40-120. A serious problem is 200-350. 500+ is once-a-run.
@@ -57,7 +66,26 @@ STAFF ROLES — ${DESIGN_LIMITS.minRoles} to ${DESIGN_LIMITS.maxRoles} job title
 Never mention the archetype, the trait ids, or the game's mechanics in any player-facing text.`;
 }
 
-/** Matches the fields validateDesign reads. Anything else is ignored anyway. */
+/**
+ * Matches the fields validateDesign reads.
+ *
+ * The outcome shape is written out twice rather than referenced through
+ * `$defs`. Gemini's `responseSchema` is an OpenAPI subset whose support for
+ * `$ref` is inconsistent — Google's own guidance is to use `responseJsonSchema`
+ * when a schema needs references — and a rejected schema comes back as a bare
+ * 400, which is indistinguishable from a bad key unless you read the message.
+ * Duplicating eight lines is a better trade than depending on that.
+ */
+const OUTCOME_SCHEMA = {
+  type: 'object',
+  required: ['text'],
+  properties: {
+    text: { type: 'string', description: 'What happens, in one or two sentences.' },
+    cashSeconds: { type: 'number', description: 'Payout in seconds of income, -600 to 600.' },
+    morale: { type: 'number', description: 'Change in morale, -0.15 to 0.15.' },
+  },
+} as const;
+
 const RESPONSE_SCHEMA = {
   type: 'object',
   required: ['name', 'tagline', 'blurb', 'archetype', 'traits', 'staffRoles', 'icon', 'cards'],
@@ -86,23 +114,12 @@ const RESPONSE_SCHEMA = {
                 label: { type: 'string' },
                 hint: { type: 'string', description: 'Three or four words.' },
                 odds: { type: 'number' },
-                good: { $ref: '#/$defs/outcome' },
-                bad: { $ref: '#/$defs/outcome' },
+                good: OUTCOME_SCHEMA,
+                bad: OUTCOME_SCHEMA,
               },
             },
           },
         },
-      },
-    },
-  },
-  $defs: {
-    outcome: {
-      type: 'object',
-      required: ['text'],
-      properties: {
-        text: { type: 'string' },
-        cashSeconds: { type: 'number' },
-        morale: { type: 'number' },
       },
     },
   },

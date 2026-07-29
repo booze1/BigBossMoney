@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DEFAULT_MODEL, generateDesign, getApiKey, getModel, setApiKey, setModel } from '../../ai/gemini';
-import { listModels, type ModelOption } from '../../ai/client';
+import { clearLastFailure, getLastFailure, listModels, type ModelOption } from '../../ai/client';
 import { useGame } from '../../store';
 import { TIERS, TUNING } from '../../engine/content/tuning';
 import { LEGACY_UPGRADES } from '../../engine/content/luck';
@@ -656,6 +656,73 @@ function GeminiSettings() {
       )}
 
       {status && <div className="hint" style={{ marginTop: 10 }}>{status}</div>}
+
+      <LastFailure />
     </Card>
+  );
+}
+
+/**
+ * The last thing that went wrong, in Google's own words.
+ *
+ * Player-facing messages are deliberately short and actionable, which is right
+ * until something fails for a reason nobody anticipated — at which point "it
+ * doesn't work" is all anyone can report. This shows the raw reason and offers
+ * it as copyable text, so a fault can be described precisely.
+ */
+function LastFailure() {
+  const [failure, setFailure] = useState(getLastFailure());
+  const [copied, setCopied] = useState(false);
+
+  // Read on every render of the parent rather than subscribing: failures are
+  // rare and this panel is only looked at when something has already gone wrong.
+  const current = getLastFailure();
+  if (current !== failure) setFailure(current);
+  if (!failure) return null;
+
+  const report = [
+    `kind: ${failure.kind}`,
+    `model: ${getModel()}`,
+    `said: ${failure.message}`,
+    failure.detail ? `detail: ${failure.detail}` : '',
+    `at: ${new Date(failure.at).toISOString()}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+      <div className="row">
+        <span className="tile-label">Last AI failure</span>
+        <span className="grow" />
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            void navigator.clipboard?.writeText(report).then(() => setCopied(true)).catch(() => setCopied(false));
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <div className="hint neg" style={{ marginTop: 6 }}>{failure.message}</div>
+      {failure.detail && (
+        <div
+          className="faint"
+          style={{ marginTop: 6, fontSize: 11, fontFamily: 'var(--mono, monospace)', wordBreak: 'break-word' }}
+        >
+          {failure.detail}
+        </div>
+      )}
+      <button
+        className="btn btn-ghost btn-sm btn-block"
+        style={{ marginTop: 8 }}
+        onClick={() => {
+          clearLastFailure();
+          setFailure(null);
+        }}
+      >
+        Clear
+      </button>
+    </div>
   );
 }

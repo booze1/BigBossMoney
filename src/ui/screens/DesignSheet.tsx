@@ -3,8 +3,10 @@ import { useGame } from '../../store';
 import type { CustomDesign } from '../../engine/types';
 import { CATEGORY_BY_ID } from '../../engine/content/businesses';
 import { TRAIT_BY_ID } from '../../engine/content/traits';
-import { businessCost } from '../../engine/selectors';
+import { businessCost, designFee, designsUnlocked } from '../../engine/selectors';
 import { traitPriceMultiplier } from '../../engine/premises';
+import { netWorth } from '../../engine/selectors';
+import { TUNING } from '../../engine/content/tuning';
 import { money } from '../../engine/format';
 import { Card, Chip, Modal, SectionLabel } from '../components/common';
 import { AiError, generateDesign, hasApiKey, refineDesign } from '../../ai/gemini';
@@ -41,6 +43,9 @@ export function DesignSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const keyed = hasApiKey();
+  const unlocked = designsUnlocked(state);
+  const fee = designFee(state);
+  const affordable = state.cash >= fee;
 
   async function run(work: () => Promise<CustomDesign>) {
     setStage('working');
@@ -72,13 +77,20 @@ export function DesignSheet({ onClose }: { onClose: () => void }) {
   return (
     <Modal open onClose={onClose} title="Design a business">
       <div className="screen">
-        {!keyed && <NoKeyNotice />}
+        {!unlocked && <LockedNotice />}
+        {unlocked && !keyed && <NoKeyNotice />}
 
         {stage !== 'proposal' && (
           <>
             <div className="hint" style={{ marginBottom: 10 }}>
               Describe it however you like. It can be anything — the game will work out how it earns
               and write its own event cards around whatever you say.
+            </div>
+            <div className="hint" style={{ marginBottom: 10 }}>
+              Drafting and changing it are free. Putting it on the register costs{' '}
+              <span className="num">{money(fee)}</span>
+              {state.designs.length > 0 && ' — each company you incorporate costs more than the last'}
+              . Opening one after that costs whatever its trade would cost anyone.
             </div>
 
             <textarea
@@ -87,7 +99,7 @@ export function DesignSheet({ onClose }: { onClose: () => void }) {
               maxLength={600}
               placeholder="a barbershop that is obviously a front"
               value={prompt}
-              disabled={stage === 'working' || !keyed}
+              disabled={stage === 'working' || !keyed || !unlocked}
               onChange={(e) => setPrompt(e.target.value)}
               style={{ resize: 'none', fontFamily: 'inherit', fontSize: 14 }}
             />
@@ -98,7 +110,7 @@ export function DesignSheet({ onClose }: { onClose: () => void }) {
                   key={ex}
                   className="chip"
                   style={{ cursor: 'pointer', textAlign: 'left' }}
-                  disabled={stage === 'working' || !keyed}
+                  disabled={stage === 'working' || !keyed || !unlocked}
                   onClick={() => setPrompt(ex)}
                 >
                   {ex.length > 34 ? `${ex.slice(0, 34)}…` : ex}
@@ -109,9 +121,9 @@ export function DesignSheet({ onClose }: { onClose: () => void }) {
             {error && <div className="hint neg" style={{ marginTop: 10 }}>{error}</div>}
 
             <button
-              className={`btn btn-block ${prompt.trim() && keyed ? 'btn-primary' : ''}`}
+              className={`btn btn-block ${prompt.trim() && keyed && unlocked ? 'btn-primary' : ''}`}
               style={{ marginTop: 14 }}
-              disabled={stage === 'working' || !prompt.trim() || !keyed}
+              disabled={stage === 'working' || !prompt.trim() || !keyed || !unlocked}
               onClick={() => run(() => generateDesign(prompt))}
             >
               {stage === 'working' ? 'Working on it…' : 'Build it'}
@@ -148,8 +160,15 @@ export function DesignSheet({ onClose }: { onClose: () => void }) {
               Change it
             </button>
 
-            <button className="btn btn-primary btn-block" style={{ marginTop: 14 }} onClick={accept}>
-              Keep {design.name}
+            <button
+              className={`btn btn-block ${affordable ? 'btn-primary' : ''}`}
+              style={{ marginTop: 14 }}
+              disabled={!affordable}
+              onClick={accept}
+            >
+              {affordable
+                ? `Incorporate ${design.name} — ${money(fee)}`
+                : `Needs ${money(fee)} to incorporate`}
             </button>
             <button
               className="btn btn-ghost btn-block btn-sm"
@@ -163,8 +182,9 @@ export function DesignSheet({ onClose }: { onClose: () => void }) {
               Start again
             </button>
             <div className="hint" style={{ marginTop: 10 }}>
-              Keeping it files it in your catalogue. Opening one costs money, like any business, and
-              your catalogue survives going public.
+              Incorporating files it on your register for good — it survives going public, and comes
+              back with its history every run. Opening a branch costs whatever that trade costs
+              anyone.
             </div>
           </>
         )}
@@ -184,6 +204,20 @@ export function DesignSheet({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+function LockedNotice() {
+  const { state } = useGame();
+  return (
+    <Card>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Not yet</div>
+      <div className="hint">
+        Founding your own company unlocks at {money(TUNING.designUnlockAt)} net worth. You are at{' '}
+        {money(netWorth(state))}. Run what you have for a while first — the six trades below teach
+        you what a business actually does before you are handed a blank page.
+      </div>
+    </Card>
   );
 }
 

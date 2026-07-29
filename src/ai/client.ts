@@ -25,7 +25,7 @@ const MODEL_STORAGE = 'bigbossmoney.gemini.model';
 export const DEFAULT_MODEL = 'gemini-3-flash';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-const TIMEOUT_MS = 45_000;
+const TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------- the key
 
@@ -73,9 +73,48 @@ export const hasApiKey = (): boolean => getApiKey() !== null;
 export class AiError extends Error {
   constructor(
     message: string,
-    readonly kind: 'no-key' | 'rejected' | 'rate-limit' | 'model' | 'network' | 'bad-reply' | 'blocked',
+    readonly kind:
+      | 'no-key'
+      | 'rejected'
+      | 'rate-limit'
+      | 'model'
+      | 'network'
+      | 'bad-reply'
+      | 'bad-request'
+      | 'blocked',
+    /**
+     * What actually happened, in Google's words. Never shown by default — the
+     * player gets `message` — but kept so Settings can display the last failure
+     * verbatim, which is the difference between "it doesn't work" and a report
+     * somebody can act on.
+     */
+    readonly detail?: string,
   ) {
     super(message);
+    lastFailure = { at: Date.now(), message, kind, detail };
+  }
+}
+
+/** The most recent failure, for the diagnostics panel in Settings. */
+export interface AiFailure {
+  at: number;
+  message: string;
+  kind: AiError['kind'];
+  detail?: string;
+}
+let lastFailure: AiFailure | null = null;
+export const getLastFailure = (): AiFailure | null => lastFailure;
+export const clearLastFailure = (): void => {
+  lastFailure = null;
+};
+
+/** Digs the human-readable reason out of a Gemini error body. */
+function errorMessageOf(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string; status?: string } };
+    return [parsed.error?.status, parsed.error?.message].filter(Boolean).join(': ').slice(0, 300);
+  } catch {
+    return body.slice(0, 300);
   }
 }
 
@@ -115,7 +154,13 @@ export async function callGemini(
           responseMimeType: 'application/json',
           responseSchema: config.schema,
           temperature: 1,
-maxOutputTokens: 8192,
+          // No maxOutputTokens on purpose. Current models think before they
+          // answer and those reasoning tokens count against this ceiling, so a
+          // cap sized for the visible reply gets spent on deliberation and the
+          // call returns MAX_TOKENS with an empty body — which reads to the
+          // player as the button doing nothing. Omitting it lets each model use
+          // its own maximum, and also avoids a 400 from naming a number larger
+          // than the model allows.
         },
       }),
     });
@@ -132,21 +177,35 @@ maxOutputTokens: 8192,
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    // The message is player-facing, so it says what to do rather than what
-    // happened. The status is what distinguishes them.
-    if (response.status === 400 || response.status === 401 || response.status === 403) {
-      throw new AiError('That key was refused. Check it in Settings.', 'rejected');
+    const reason = errorMessageOf(body);
+
+    // A 400 is not only a bad key, and treating it as one sent players off to
+    // check a key that was fine while the real fault was in the request. The
+    // two are told apart by what Google actually said.
+    if (response.status === 401 || response.status === 403) {
+      throw new AiError('That key was refused. Check it in Settings.', 'rejected', reason);
+    }
+    if (response.status === 400) {
+      if (/API key|API_KEY_INVALID|api key not valid/i.test(reason)) {
+        throw new AiError('That key was refused. Check it in Settings.', 'rejected', reason);
+      }
+      throw new AiError(
+        `Gemini rejected the request: ${reason || 'no reason given'}`,
+        'bad-request',
+        reason,
+      );
     }
     if (response.status === 404) {
       throw new AiError(
-        `Model "${getModel()}" is not available on your key. Try another in Settings.`,
+        `Model "${getModel()}" is not available on your key. Press "Show what my key can run" in Settings and pick one.`,
         'model',
+        reason,
       );
     }
     if (response.status === 429) {
-      throw new AiError('Gemini is rate-limiting you. Wait a minute and try again.', 'rate-limit');
+      throw new AiError('Gemini is rate-limiting you. Wait a minute and try again.', 'rate-limit', reason);
     }
-    throw new AiError(`Gemini returned an error (${response.status}). ${body.slice(0, 120)}`, 'network');
+    throw new AiError(`Gemini returned an error (${response.status}). ${reason}`, 'network', reason);
   }
 
   const payload = (await response.json().catch(() => null)) as {
@@ -162,12 +221,22 @@ maxOutputTokens: 8192,
   if (candidate?.finishReason === 'SAFETY') {
     throw new AiError('Gemini would not answer that one. Try describing it differently.', 'blocked');
   }
-  if (candidate?.finishReason === 'MAX_TOKENS') {
-    throw new AiError('The reply was cut off. Try a simpler description.', 'bad-reply');
-  }
-
   const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
-  if (!text.trim()) throw new AiError('Gemini sent nothing back. Try again.', 'bad-reply');
+
+  if (candidate?.finishReason === 'MAX_TOKENS') {
+    throw new AiError(
+      'The reply ran out of room before it finished. Try a shorter description, or a model with a larger output limit.',
+      'bad-reply',
+      `finishReason MAX_TOKENS, ${text.length} characters returned`,
+    );
+  }
+  if (!text.trim()) {
+    throw new AiError(
+      'Gemini sent an empty reply. Try again, or pick a different model in Settings.',
+      'bad-reply',
+      `finishReason ${candidate?.finishReason ?? 'absent'}, no text in the response`,
+    );
+  }
 
   try {
     return JSON.parse(text);
